@@ -1,0 +1,44 @@
+appId: com.lavanotes.app
+productName: LavaNotes
+copyright: © 2026 chengcczzjj
+asar: true
+# koffi loads a native .node file, which cannot be opened from inside the asar.
+asarUnpack:
+  - '**/node_modules/@koromix/koffi-*/**'
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+  - '!**/*.{md,map,ts}'
+extraResources:
+  - from: resources
+    to: resources
+    filter: ['**/*']
+protocols:
+  - name: LavaNotes
+    schemes: [lavanotes]
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  executableName: LavaNotes
+  requestedExecutionLevel: asInvoker
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: LavaNotes
+  runAfterFinish: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  artifactName: LavaNotes-Setup-${version}.${ext}
+publish:
+  - provider: github
+    owner: chengcczzjj
+    repo: LavaNotes
+    releaseType: release
