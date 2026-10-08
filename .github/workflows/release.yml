@@ -1,30 +1,42 @@
 name: Release Windows
 
-# Push a v* tag (matching package.json) to build the installer on Windows,
-# run the checks and the Electron smoke test there, and publish the GitHub
-# Release that electron-updater reads. Assets go to a draft first; the release
-# is published only when the installer, blockmap and latest.yml all match.
+# Push a v* tag (matching package.json), or run this workflow manually with
+# the tag to create, to build the installer on Windows, run the checks and the
+# Electron smoke test there, and publish the GitHub Release that
+# electron-updater reads. Assets go to a draft first; the release is published
+# only when the installer, blockmap and latest.yml all match. A manual run
+# builds the selected branch and creates the tag at that commit on publish.
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, e.g. v1.0.0 (created at the built commit if it does not exist yet)'
+        required: true
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref_name }}
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   release:
     runs-on: windows-latest
     timeout-minutes: 60
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
     defaults:
       run:
         shell: bash
     steps:
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -34,12 +46,19 @@ jobs:
       - name: Check tag, version and release notes
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $VERSION"
+          if [ "v$VERSION" != "$RELEASE_TAG" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match package.json version $VERSION"
             exit 1
           fi
           if [ ! -f "docs/releases/v$VERSION.md" ]; then
             echo "::error::Missing docs/releases/v$VERSION.md"
+            exit 1
+          fi
+          # An existing tag must point at the commit being built.
+          TAG_SHA=$(git ls-remote origin "refs/tags/$RELEASE_TAG^{}" | cut -f1)
+          [ -n "$TAG_SHA" ] || TAG_SHA=$(git ls-remote origin "refs/tags/$RELEASE_TAG" | cut -f1)
+          if [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$GITHUB_SHA" ]; then
+            echo "::error::Tag $RELEASE_TAG points at $TAG_SHA, but this run builds $GITHUB_SHA"
             exit 1
           fi
           echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
@@ -49,11 +68,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if IS_DRAFT=$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null); then
+          if IS_DRAFT=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$IS_DRAFT" = "true" ]; then
-              gh release delete "$GITHUB_REF_NAME" --yes
+              gh release delete "$RELEASE_TAG" --yes
             else
-              echo "::error::Release $GITHUB_REF_NAME is already published; bump the version instead"
+              echo "::error::Release $RELEASE_TAG is already published; bump the version instead"
               exit 1
             fi
           fi
@@ -80,7 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --draft --target "$GITHUB_SHA" \
+          gh release create "$RELEASE_TAG" --draft --target "$GITHUB_SHA" \
             --title "LavaNotes $APP_VERSION" --notes-file "docs/releases/v$APP_VERSION.md" \
             "dist/$INSTALLER" "dist/$INSTALLER.blockmap" "dist/latest.yml"
 
@@ -90,7 +109,7 @@ jobs:
         run: |
           for FILE in "$INSTALLER" "$INSTALLER.blockmap" latest.yml; do
             LOCAL=$(stat -c %s "dist/$FILE")
-            REMOTE=$(gh release view "$GITHUB_REF_NAME" --json assets --jq ".assets[] | select(.name == \"$FILE\") | .size")
+            REMOTE=$(gh release view "$RELEASE_TAG" --json assets --jq ".assets[] | select(.name == \"$FILE\") | .size")
             [ "$LOCAL" = "$REMOTE" ] || { echo "::error::$FILE uploaded as '$REMOTE' bytes, expected $LOCAL"; exit 1; }
           done
-          gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+          gh release edit "$RELEASE_TAG" --draft=false --latest

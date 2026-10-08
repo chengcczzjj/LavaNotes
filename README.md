@@ -49,7 +49,7 @@ npm run test:smoke    # build, then drive real Electron windows (use xvfb-run on
 npm run dist          # build the Windows installer (on Windows)
 ```
 
-Pushing a `v*` tag makes GitHub Actions test, build and publish the release on Windows. Design notes: [docs/architecture.md](docs/architecture.md).
+Pushing a `v*` tag, or running the **Release Windows** workflow by hand with the tag to create, makes GitHub Actions test, build and publish the release on Windows. Design notes: [docs/architecture.md](docs/architecture.md).
 
 ## License
 

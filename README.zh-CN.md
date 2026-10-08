@@ -71,7 +71,7 @@ npm run test:smoke    # 构建后用真实 Electron 窗口跑一遍主要流程�
 npm run dist          # 构建 Windows 安装包（在 Windows 上运行）
 ```
 
-推送 `v*` 标签后，GitHub Actions 会在 Windows 上测试、构建并发布 Release。设计说明见 [docs/architecture.md](docs/architecture.md)。
+推送 `v*` 标签，或在 Actions 里手动运行 **Release Windows** 并填写要创建的标签，GitHub Actions 会在 Windows 上测试、构建并发布 Release。设计说明见 [docs/architecture.md](docs/architecture.md)。
 
 ## 许可证
 
