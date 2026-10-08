@@ -2,7 +2,7 @@ import { app, screen, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { AppSettings, CreateNoteOptions, ManagerSnapshot, NoteRecord } from '@shared/types'
 import { NOTE_DEFAULT_HEIGHT, NOTE_DEFAULT_WIDTH } from '@shared/note-model'
-import { placeBeside, placeNewNote } from '@shared/geometry'
+import { placeNewNote } from '@shared/geometry'
 import { applyUserDataOverride } from './env'
 import { preloadPath, registerProtocolHandlers, registerSchemes } from './app-paths'
 import { NotesService } from './notes-service'
@@ -60,8 +60,10 @@ async function main(): Promise<void> {
     const display = near
       ? screen.getDisplayMatching(near.bounds)
       : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-    const visible = service.list().filter((note) => note.visible).length
-    const bounds = near ? placeBeside(near.bounds, size, display.workArea) : placeNewNote(size, display.workArea, visible)
+    const onDisplay = service.list()
+      .filter((note) => note.visible && screen.getDisplayMatching(note.bounds).id === display.id)
+      .length
+    const bounds = placeNewNote(size, display.workArea, onDisplay)
     try {
       const note = service.create({
         bounds,
@@ -70,7 +72,6 @@ async function main(): Promise<void> {
         paperStyle: options.paperStyle,
         layer: options.layer,
         todo: options.todo,
-        besideRotation: near?.rotation,
       })
       await windows.open(note.id, { focus: options.focus !== false })
       return note

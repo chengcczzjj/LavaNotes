@@ -18,7 +18,6 @@ import {
   createNoteRecord,
   createTodo,
   emptyDoc,
-  nextRotationIndex,
   normalizeBounds,
   normalizeDoc,
   normalizeNoteList,
@@ -56,8 +55,6 @@ export interface CreateNoteParams {
   paperStyle?: PaperStyle
   layer?: NoteLayer
   todo?: NoteTodo
-  /** Tilt of the note this one is placed beside; the new note leans the other way. */
-  besideRotation?: number
 }
 
 export class NotesService extends EventEmitter {
@@ -149,18 +146,17 @@ export class NotesService extends EventEmitter {
     const now = this.now()
     let id = createNoteId(now)
     while (this.notes.has(id)) id = createNoteId(now)
-    const index = nextRotationIndex(this.nextIndex, params.besideRotation)
     const record = createNoteRecord({
       id,
       bounds: normalizeBounds(params.bounds, params.bounds),
       now,
-      index,
+      index: this.nextIndex,
       color: params.color,
       paperStyle: params.paperStyle,
       layer: params.layer ?? this.settingsValue.defaultLayer,
       todo: params.todo,
     })
-    this.nextIndex = index + 1
+    this.nextIndex += 1
     const doc = emptyDoc(params.text ?? '')
     const summary = summarizeDoc(doc)
     const note: NoteRecord = { ...record, title: summary.title, preview: summary.preview, imageCount: summary.imageCount }

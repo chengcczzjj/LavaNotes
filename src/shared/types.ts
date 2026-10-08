@@ -110,7 +110,7 @@ export interface CreateNoteOptions {
   paperStyle?: PaperStyle
   layer?: NoteLayer
   todo?: NoteTodo
-  /** Place the new note next to this note instead of the default stack. */
+  /** Start the new note in the cascade on the display showing this note. */
   nearNoteId?: string
   focus?: boolean
 }

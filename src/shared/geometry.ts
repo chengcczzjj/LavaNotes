@@ -70,30 +70,27 @@ export function ensurePaperReachable(paper: NoteBounds, workAreas: readonly Rect
   }
 }
 
-/** Default spot for a new note: a loose stack near the top right of the work area. */
+/**
+ * Default spot for a new note, the cascade LavaDesk used for its sticky notes:
+ * from about two thirds across the top of the work area, each note 28px right
+ * and 22px down from the last, six to a run, each run 36px left and 34px down.
+ * The notes overlap on purpose so their alternating tilts show.
+ */
 export function placeNewNote(
   size: { width: number; height: number },
   workArea: Rect,
   existingCount: number,
 ): NoteBounds {
-  const step = existingCount % 8
-  const x = workArea.x + workArea.width - size.width - 96 - step * 28
-  const y = workArea.y + 88 + step * 24
+  const column = existingCount % 6
+  const row = Math.floor(existingCount / 6) % 3
+  const x = workArea.x + workArea.width * 0.66 - size.width / 2 + column * 28 - row * 36
+  const y = workArea.y + Math.min(150, workArea.height * 0.17) + column * 22 + row * 34
+  const minX = workArea.x + 16
+  const minY = workArea.y + 16
   return {
-    x: Math.round(Math.max(workArea.x + 16, x)),
-    y: Math.round(Math.min(y, workArea.y + Math.max(16, workArea.height - size.height - 16))),
+    x: Math.round(Math.max(minX, Math.min(x, workArea.x + workArea.width - size.width - 16))),
+    y: Math.round(Math.max(minY, Math.min(y, workArea.y + workArea.height - size.height - 16))),
     width: size.width,
     height: size.height,
   }
-}
-
-/** Put a note created from another note just beside it, inside the same work area when possible. */
-export function placeBeside(source: NoteBounds, size: { width: number; height: number }, workArea: Rect): NoteBounds {
-  const gap = 28
-  let x = source.x + source.width + gap
-  if (x + size.width > workArea.x + workArea.width) x = source.x - size.width - gap
-  if (x < workArea.x) x = source.x + 32
-  let y = source.y + 18
-  if (y + size.height > workArea.y + workArea.height) y = Math.max(workArea.y + 16, workArea.y + workArea.height - size.height - 16)
-  return { x: Math.round(x), y: Math.round(y), width: size.width, height: size.height }
 }

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { NotesService } from '../src/main/notes-service.ts'
-import { createTodo } from '../src/shared/note-model.ts'
+import { ROTATION_SEQUENCE, createTodo } from '../src/shared/note-model.ts'
 
 async function tempDir(t) {
   const dir = await mkdtemp(join(tmpdir(), 'lavanotes-service-'))
@@ -100,24 +100,23 @@ test('finishing a plain note makes it a finished to-do that can be restored', as
   assert.equal(service.get(note.id).todo.done, false)
 })
 
-test('new notes lean left and right in turn; a note made beside another leans the other way', async (t) => {
+test('new notes take the tilt sequence in turn, also after a restart', async (t) => {
   const dir = await tempDir(t)
   const service = new NotesService(dir)
   await service.load()
-  const signs = Array.from({ length: 6 }, () => Math.sign(service.create({ bounds }).rotation))
-  assert.deepEqual(signs, [-1, 1, -1, 1, -1, 1])
-  const left = service.create({ bounds })
-  assert.ok(left.rotation < 0)
-  // The next slot leans right; beside a right-leaning note it skips to a left one.
-  assert.ok(service.create({ bounds, besideRotation: 2 }).rotation < 0)
-  assert.ok(service.create({ bounds, besideRotation: -1.6 }).rotation > 0)
+  const tilts = ROTATION_SEQUENCE.map(() => service.create({ bounds }).rotation)
+  assert.deepEqual(tilts, ROTATION_SEQUENCE)
+  assert.deepEqual(tilts.slice(0, 4).map(Math.sign), [-1, 1, -1, 1])
+  service.create({ bounds })
   await service.flush()
 
   const restarted = new NotesService(dir)
   await restarted.load()
-  const next = restarted.create({ bounds }).rotation
-  const after = restarted.create({ bounds }).rotation
-  assert.equal(Math.sign(next), -Math.sign(after), 'the alternation carries on after a restart')
+  assert.deepEqual(
+    [restarted.create({ bounds }).rotation, restarted.create({ bounds }).rotation],
+    [ROTATION_SEQUENCE[1], ROTATION_SEQUENCE[2]],
+    'the sequence carries on from the number of notes',
+  )
 })
 
 test('unfinished notes are not archived and clearing the archive deletes files', async (t) => {

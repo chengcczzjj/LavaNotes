@@ -6,7 +6,6 @@ import {
   getWindowMargin,
   isPaperReachable,
   paperOriginForWindow,
-  placeBeside,
   placeNewNote,
   windowBoundsForPaper,
 } from '../src/shared/geometry.ts'
@@ -49,12 +48,24 @@ test('a note left on an unplugged monitor comes back to a visible work area', ()
   assert.deepEqual(ensurePaperReachable(partly, [primary], primary), partly)
 })
 
-test('new notes stack loosely near the top right and stay inside the work area', () => {
-  const area = { x: 0, y: 0, width: 1280, height: 720 }
-  const first = placeNewNote({ width: 240, height: 220 }, area, 0)
-  const second = placeNewNote({ width: 240, height: 220 }, area, 1)
-  assert.ok(first.x + first.width <= area.width)
-  assert.ok(second.x < first.x && second.y > first.y)
-  const beside = placeBeside(first, { width: 240, height: 220 }, area)
-  assert.ok(beside.x + beside.width <= area.width && beside.x >= area.x)
+test('new notes cascade like LavaDesk sticky notes and stay inside the work area', () => {
+  const area = { x: 100, y: 40, width: 1600, height: 900 }
+  const size = { width: 300, height: 290 }
+  const spots = Array.from({ length: 8 }, (_, count) => placeNewNote(size, area, count))
+  assert.deepEqual(spots[0], { x: 100 + 1056 - 150, y: 40 + 150, ...size })
+  // Six to a run, each one 28px right and 22px down.
+  assert.deepEqual([spots[1].x - spots[0].x, spots[1].y - spots[0].y], [28, 22])
+  assert.deepEqual([spots[5].x - spots[0].x, spots[5].y - spots[0].y], [140, 110])
+  // The next run starts 36px left and 34px below the first.
+  assert.deepEqual([spots[6].x - spots[0].x, spots[6].y - spots[0].y], [-36, 34])
+  assert.deepEqual([spots[7].x - spots[6].x, spots[7].y - spots[6].y], [28, 22])
+
+  const laptop = { x: 0, y: 0, width: 800, height: 600 }
+  for (let count = 0; count < 20; count += 1) {
+    const spot = placeNewNote(size, laptop, count)
+    assert.ok(spot.x >= 16 && spot.x + spot.width <= 800 - 16, `x for ${count}`)
+    assert.ok(spot.y >= 16 && spot.y + spot.height <= 600 - 16, `y for ${count}`)
+  }
+  // A work area smaller than the note keeps its top-left corner reachable.
+  assert.deepEqual(placeNewNote(size, { x: 0, y: 0, width: 250, height: 250 }, 3), { x: 16, y: 16, ...size })
 })

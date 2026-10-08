@@ -36,18 +36,8 @@ export const NOTE_MAX_HEIGHT = 900
 export const NOTE_DEFAULT_WIDTH = 300
 export const NOTE_DEFAULT_HEIGHT = 290
 
-/** A few hand-picked tilts, alternating left and right, so a fresh stack looks like real paper. */
-export const ROTATION_SEQUENCE = [-1.6, 1.2, -0.7, 2.0, -1.1, 0.6]
-
-/**
- * Sequence slot for the next new note. A note made beside another one skips a
- * slot when needed so the two lean opposite ways.
- */
-export function nextRotationIndex(index: number, besideRotation?: number): number {
-  if (!besideRotation) return index
-  const rotation = ROTATION_SEQUENCE[index % ROTATION_SEQUENCE.length]
-  return Math.sign(rotation) === Math.sign(besideRotation) ? index + 1 : index
-}
+/** LavaDesk's sticky-note tilts, taken in turn so a fresh cascade leans left and right. */
+export const ROTATION_SEQUENCE = [-1.8, 1.3, -0.8, 2.1, -1.2]
 
 export const TODO_CATEGORY_LABELS: Record<TodoCategory, string> = {
   work: '工作',
