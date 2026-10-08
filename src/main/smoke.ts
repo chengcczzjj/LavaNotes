@@ -151,6 +151,13 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
     await waitFor(() => !windows.windowFor(c.id), 3000)
     check('the torn-off note window closes', !windows.windowFor(c.id))
 
+    // The check in the top bar finishes a plain note the same way.
+    const d = await createNote({ text: 'smoke D', focus: false })
+    const dReady = Boolean(d) && await waitFor(() => rendered(d!.id))
+    if (d && dReady) await evalIn(d.id, `document.querySelector('.note__icon--done').click()`)
+    const plainArchived = Boolean(d) && await waitFor(() => service.get(d!.id)?.archivedAt !== undefined, 4000)
+    check('the top-bar check tears a plain note off into the archive', dReady && plainArchived && service.get(d!.id)?.todo?.done === true)
+
     if (process.platform === 'win32') await runWindowsDesktopChecks({ service, windows, createNote, evalIn, check })
 
     // Manager window.

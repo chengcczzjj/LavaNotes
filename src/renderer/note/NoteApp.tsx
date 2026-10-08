@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Check, Clock3, Ellipsis, Layers, Pin, PinOff, Plus } from 'lucide-react'
+import { Check, Clock3, Ellipsis, Layers, Pin, Plus } from 'lucide-react'
 import type { NoteInit, NotePatch, NoteRecord } from '@shared/types'
 import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH, TODO_CATEGORY_LABELS, formatDueLabel, isTodoOverdue } from '@shared/note-model'
 import { getWindowMargin } from '@shared/geometry'
@@ -174,7 +174,6 @@ export function NoteApp({ init }: { init: NoteInit }) {
     '--note-font-family': FONT_FAMILY_CSS[note.fontFamily],
   } as CSSProperties
 
-  const pinned = note.layer === 'desktop'
   const compact = size.width < 210
   const short = size.height < 170
 
@@ -217,20 +216,18 @@ export function NoteApp({ init }: { init: NoteInit }) {
                 </>
               ) : null}
             </div>
-            {init.desktopPinSupported && (
-              <button
-                type="button"
-                className="note__icon"
-                data-active={pinned}
-                title={pinned ? '已钉在桌面：只在桌面露出时可见。点击取消' : '钉在桌面：显示桌面和最小化全部窗口时也留在桌面上'}
-                aria-label={pinned ? '取消钉在桌面' : '钉在桌面'}
-                aria-pressed={pinned}
-                onClick={() => void patch({ layer: pinned ? 'normal' : 'desktop' })}
-              >
-                {pinned ? <Pin size={14} /> : <PinOff size={14} />}
-              </button>
-            )}
+            {note.layer === 'desktop' && <span className="note__icon note__icon--badge" title="已钉在桌面，可在 ⋯ → 窗口里取消"><Pin size={13} /></span>}
             {note.layer === 'top' && <span className="note__icon note__icon--badge" title="置顶"><Layers size={13} /></span>}
+            <button
+              type="button"
+              className="note__icon note__icon--done"
+              title="完成并撕下"
+              aria-label="完成并撕下"
+              disabled={tearing || todo?.done}
+              onClick={() => window.lavaNote.complete()}
+            >
+              <Check size={15} strokeWidth={2.4} />
+            </button>
             <button
               ref={menuButton}
               type="button"
@@ -263,12 +260,6 @@ export function NoteApp({ init }: { init: NoteInit }) {
               onImageFailed={() => showToast('这张图片没能加入：只支持 PNG、JPG、GIF、WebP，且不超过 15MB。')}
             />
           </div>
-
-          {todo && !todo.done && !editing && (
-            <button type="button" className="note__complete" title="完成并撕下" aria-label="完成并撕下" disabled={tearing} onClick={() => window.lavaNote.complete()}>
-              <Check size={15} strokeWidth={2.6} />
-            </button>
-          )}
 
           {toast && <div className="note__toast" role="status">{toast}</div>}
 

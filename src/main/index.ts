@@ -31,7 +31,7 @@ if (!app.requestSingleInstanceLock()) {
 const WELCOME_TEXT = [
   '欢迎使用 LavaNotes',
   '拖动顶部纸条或胶带可以移动便签，拖右下角折角调整大小。',
-  '点右上角 ⋯ 可以换纸色、设为待办，或者钉在桌面。',
+  '点右上角 ✓ 完成并撕下；点 ⋯ 可以换纸色、设为待办，或者钉在桌面。',
   '图片可以直接粘贴、拖进来；也可以插入简单表格。',
 ].join('\n')
 
@@ -70,6 +70,7 @@ async function main(): Promise<void> {
         paperStyle: options.paperStyle,
         layer: options.layer,
         todo: options.todo,
+        besideRotation: near?.rotation,
       })
       await windows.open(note.id, { focus: options.focus !== false })
       return note
@@ -178,7 +179,7 @@ async function main(): Promise<void> {
 
   if (loaded.source === 'empty' && !loaded.quarantined && service.list().length === 0) {
     service.create({
-      bounds: placeNewNote({ width: 300, height: 250 }, screen.getPrimaryDisplay().workArea, 0),
+      bounds: placeNewNote({ width: NOTE_DEFAULT_WIDTH, height: NOTE_DEFAULT_HEIGHT }, screen.getPrimaryDisplay().workArea, 0),
       text: WELCOME_TEXT,
       color: 'butter',
       paperStyle: 'tape',

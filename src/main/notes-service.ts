@@ -16,7 +16,9 @@ import {
   applyNotePatch,
   createNoteId,
   createNoteRecord,
+  createTodo,
   emptyDoc,
+  nextRotationIndex,
   normalizeBounds,
   normalizeDoc,
   normalizeNoteList,
@@ -54,6 +56,8 @@ export interface CreateNoteParams {
   paperStyle?: PaperStyle
   layer?: NoteLayer
   todo?: NoteTodo
+  /** Tilt of the note this one is placed beside; the new note leans the other way. */
+  besideRotation?: number
 }
 
 export class NotesService extends EventEmitter {
@@ -67,7 +71,8 @@ export class NotesService extends EventEmitter {
   private readonly contentWriter: KeyedWriter<NoteDoc>
   /** Bodies saved in this session, so reads never return an older file. */
   private readonly contentCache = new Map<string, NoteDoc>()
-  private createdCount = 0
+  /** Next slot in the tilt/color sequence; consecutive notes take consecutive slots. */
+  private nextIndex = 0
 
   constructor(root: string, options: NotesServiceOptions = {}) {
     super()
@@ -97,6 +102,7 @@ export class NotesService extends EventEmitter {
     const loaded = await loadIndexFile(this.paths, this.now())
     const source = loaded.value && typeof loaded.value === 'object' ? (loaded.value as { notes?: unknown }).notes : undefined
     this.notes = new Map(normalizeNoteList(source, this.now()).map((note) => [note.id, note]))
+    this.nextIndex = this.notes.size
     const settings = await readJsonFile(this.paths.settings)
     this.settingsValue = normalizeSettings(settings.status === 'ok' ? settings.value : {})
     // A recovered index must be written back so the next start reads it directly.
@@ -143,17 +149,18 @@ export class NotesService extends EventEmitter {
     const now = this.now()
     let id = createNoteId(now)
     while (this.notes.has(id)) id = createNoteId(now)
+    const index = nextRotationIndex(this.nextIndex, params.besideRotation)
     const record = createNoteRecord({
       id,
       bounds: normalizeBounds(params.bounds, params.bounds),
       now,
-      index: this.notes.size + this.createdCount,
+      index,
       color: params.color,
       paperStyle: params.paperStyle,
       layer: params.layer ?? this.settingsValue.defaultLayer,
       todo: params.todo,
     })
-    this.createdCount += 1
+    this.nextIndex = index + 1
     const doc = emptyDoc(params.text ?? '')
     const summary = summarizeDoc(doc)
     const note: NoteRecord = { ...record, title: summary.title, preview: summary.preview, imageCount: summary.imageCount }
@@ -222,11 +229,15 @@ export class NotesService extends EventEmitter {
     this.scheduleIndexSave()
   }
 
-  /** First half of finishing a to-do: mark it done. archive() hides it after the tear animation. */
+  /**
+   * First half of finishing a note: mark it done. archive() hides it after the tear animation.
+   * A plain note becomes a finished to-do so it can be found in the archive and restored.
+   */
   markDone(id: string): NoteRecord | null {
     const note = this.notes.get(id)
-    if (!note?.todo || note.todo.done) return note ?? null
-    return this.commit({ ...note, todo: setTodoDone(note.todo, true, this.now()), updatedAt: this.now() })
+    if (!note || note.todo?.done) return note ?? null
+    const todo = note.todo ?? createTodo({ text: note.title })
+    return this.commit({ ...note, todo: setTodoDone(todo, true, this.now()), updatedAt: this.now() })
   }
 
   archive(id: string): NoteRecord | null {

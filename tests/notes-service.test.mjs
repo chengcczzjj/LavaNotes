@@ -84,12 +84,47 @@ test('finishing a to-do tears it off into the archive and it can be restored', a
   assert.equal(service.get(note.id).archivedAt, undefined)
 })
 
-test('plain notes cannot be archived and clearing the archive deletes files', async (t) => {
+test('finishing a plain note makes it a finished to-do that can be restored', async (t) => {
+  const dir = await tempDir(t)
+  const service = new NotesService(dir)
+  await service.load()
+  const note = service.create({ bounds, text: '买菜' })
+  const done = service.markDone(note.id)
+  assert.equal(done.todo.done, true)
+  assert.equal(done.todo.category, 'life')
+  service.archive(note.id)
+  assert.ok(service.get(note.id).archivedAt)
+  assert.equal(service.get(note.id).visible, false)
+  service.reopen(note.id)
+  assert.equal(service.get(note.id).visible, true)
+  assert.equal(service.get(note.id).todo.done, false)
+})
+
+test('new notes lean left and right in turn; a note made beside another leans the other way', async (t) => {
+  const dir = await tempDir(t)
+  const service = new NotesService(dir)
+  await service.load()
+  const signs = Array.from({ length: 6 }, () => Math.sign(service.create({ bounds }).rotation))
+  assert.deepEqual(signs, [-1, 1, -1, 1, -1, 1])
+  const left = service.create({ bounds })
+  assert.ok(left.rotation < 0)
+  // The next slot leans right; beside a right-leaning note it skips to a left one.
+  assert.ok(service.create({ bounds, besideRotation: 2 }).rotation < 0)
+  assert.ok(service.create({ bounds, besideRotation: -1.6 }).rotation > 0)
+  await service.flush()
+
+  const restarted = new NotesService(dir)
+  await restarted.load()
+  const next = restarted.create({ bounds }).rotation
+  const after = restarted.create({ bounds }).rotation
+  assert.equal(Math.sign(next), -Math.sign(after), 'the alternation carries on after a restart')
+})
+
+test('unfinished notes are not archived and clearing the archive deletes files', async (t) => {
   const dir = await tempDir(t)
   const service = new NotesService(dir)
   await service.load()
   const plain = service.create({ bounds, text: 'plain' })
-  assert.equal(service.markDone(plain.id).todo, undefined)
   assert.equal(service.archive(plain.id).archivedAt, undefined)
   const todo = service.create({ bounds, text: 'todo', todo: createTodo() })
   service.markDone(todo.id)

@@ -169,6 +169,8 @@ select {
 .note__icon[data-active="true"] { color: #8a3b2f; background: rgba(255, 255, 255, 0.34); }
 .note__icon--badge { cursor: default; color: rgba(48, 47, 42, 0.5); }
 .note__icon--badge:hover { background: transparent; }
+.note__icon--done:not(:disabled):hover { color: #fffdf2; background: #5f9472; }
+.note__icon--done:disabled { cursor: default; opacity: 0.4; }
 
 .note__status {
   min-width: 0;
@@ -482,28 +484,7 @@ select {
 .note-menu__actions { flex-direction: row !important; flex-wrap: wrap; }
 .note-menu__danger { border-color: rgba(166, 68, 57, 0.5) !important; color: #a64439 !important; }
 
-/* ---- complete, toast, resize and edges ---- */
-
-.note__complete {
-  position: absolute;
-  z-index: 8;
-  left: 13px;
-  bottom: 12px;
-  width: 27px;
-  height: 27px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: 1.5px solid rgba(59, 56, 47, 0.42);
-  border-radius: 48% 52% 46% 54%;
-  color: rgba(59, 56, 47, 0.3);
-  background: rgba(255, 255, 255, 0.12);
-  transform: rotate(-4deg);
-  cursor: pointer;
-  transition: color 140ms ease, border-color 140ms ease, background 140ms ease, transform 140ms ease;
-}
-.note__complete:not(:disabled):hover { color: #fffdf2; border-color: #4d7b60; background: #5f9472; transform: rotate(0) scale(1.08); }
+/* ---- toast, resize and edges ---- */
 
 .note__toast {
   position: absolute;

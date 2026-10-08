@@ -23,7 +23,8 @@
 - **Rich text**: bold, italic, underline, strikethrough, bullet and numbered lists, checklists.
 - **Images**: insert, paste a screenshot or drag a file in; drag a corner to resize. Images are stored as separate files, so notes stay light.
 - **Simple tables**: insert 3×3, add or remove rows and columns, toggle the header row, drag column widths.
-- **Notes first, to-dos optional**: a new note is just a note. Turn it into a to-do from the ⋯ menu to get a due date, a category, a reminder and “done — tear it off”.
+- **Done — tear it off**: the ✓ at the top right tears the note off into the archive; restore it from the manager.
+- **Notes first, to-dos optional**: a new note is just a note. Turn it into a to-do from the ⋯ menu to get a due date, a category and a reminder.
 - **Manager**: search all notes, to-dos grouped by date, a weekly review and the archive of torn-off notes (restore any of them).
 - **Tray app** that starts with Windows and updates itself from GitHub Releases.
 
