@@ -10,7 +10,7 @@ import {
 } from '@shared/geometry'
 import { isRendererUrl, rendererUrl } from './app-paths'
 import type { NotesService } from './notes-service'
-import { isDesktopPinSupported, isPinIntact, pinToDesktop, sendToBottom, unpinFromDesktop } from './win32'
+import { isDesktopPinSupported, isMouseButtonDown, isPinIntact, pinToDesktop, sendToBottom, unpinFromDesktop } from './win32'
 
 interface Entry {
   id: string
@@ -22,12 +22,18 @@ interface Entry {
   drag: { cursor: Electron.Point; window: Electron.Point } | null
   resizeTimer: NodeJS.Timeout | null
   revealed: boolean
+  /** Current setIgnoreMouseEvents state; null until first applied. */
+  ignoring: boolean | null
+  hitSeq: number
 }
 
 export interface NoteWindowManagerOptions {
   service: NotesService
   preload: string
-  /** Open notes from one hidden host page so they share its renderer process. */
+  /**
+   * Open notes from one hidden host page so they share its renderer process.
+   * Off by default: on Windows such windows showed an opaque white background.
+   */
   sharedProcess: boolean
   log: (event: string, data?: Record<string, unknown>) => void
 }
@@ -39,8 +45,13 @@ const RESIZE_SAFETY_MS = 60_000
 const PIN_HEALTH_INTERVAL_MS = 3000
 const REOPEN_WINDOW_MS = 60_000
 const REOPEN_LIMIT = 3
+const HIT_TEST_ACTIVE_MS = 30
+const HIT_TEST_IDLE_MS = 120
+/** How long a new window stays invisible on top so DWM composes its alpha. */
+const DWM_SETTLE_MS = 150
+const TRANSPARENT = '#00000000'
 
-/** Electron forwards mouse moves to ignored windows only on Windows and macOS. */
+/** Only Windows and macOS let clicks through a window's transparent pixels. */
 const canPassThrough = process.platform === 'win32' || process.platform === 'darwin'
 
 export class NoteWindowManager {
@@ -55,6 +66,8 @@ export class NoteWindowManager {
   private recoveringHost = false
   private pinTimer: NodeJS.Timeout | null = null
   private restackTimer: NodeJS.Timeout | null = null
+  private hitTimer: NodeJS.Timeout | null = null
+  private readonly hitProbes = new Map<string, { seq: number; resolve: (hit: boolean) => void }>()
   private readonly options: NoteWindowManagerOptions
 
   constructor(options: NoteWindowManagerOptions) {
@@ -64,6 +77,10 @@ export class NoteWindowManager {
     })
     screen.on('display-removed', () => this.keepNotesReachable())
     screen.on('display-metrics-changed', () => this.keepNotesReachable())
+  }
+
+  get sharedProcess(): boolean {
+    return this.options.sharedProcess
   }
 
   get desktopPinSupported(): boolean {
@@ -197,6 +214,28 @@ export class NoteWindowManager {
     return win && !win.isDestroyed() ? win : undefined
   }
 
+  /** Ask a note's page whether the paper is under a window point (smoke test). */
+  probeHit(id: string, x: number, y: number): Promise<boolean | null> {
+    const entry = this.entries.get(id)
+    if (!entry || entry.win.isDestroyed()) return Promise.resolve(null)
+    entry.hitSeq += 1
+    const seq = entry.hitSeq
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.hitProbes.delete(id)
+        resolve(null)
+      }, 1000)
+      this.hitProbes.set(id, {
+        seq,
+        resolve: (hit) => {
+          clearTimeout(timer)
+          resolve(hit)
+        },
+      })
+      entry.win.webContents.send(IPC.NOTE_HIT_TEST, seq, x, y)
+    })
+  }
+
   isRevealed(id: string): boolean {
     return this.entries.get(id)?.revealed === true
   }
@@ -208,7 +247,7 @@ export class NoteWindowManager {
     if (!entry || entry.win.isDestroyed()) return
     const [x, y] = entry.win.getPosition()
     entry.drag = { cursor: screen.getCursorScreenPoint(), window: { x, y } }
-    this.setPassthrough(id, false)
+    this.applyIgnore(entry, false)
   }
 
   dragMove(id: string): void {
@@ -239,7 +278,7 @@ export class NoteWindowManager {
     if (!entry || entry.win.isDestroyed()) return null
     const margin = getWindowMargin(entry.rotation)
     const [x, y] = entry.win.getPosition()
-    this.setPassthrough(id, false)
+    this.applyIgnore(entry, false)
     entry.win.setBounds({ x, y, width: NOTE_MAX_WIDTH + margin * 2, height: NOTE_MAX_HEIGHT + margin * 2 })
     if (entry.resizeTimer) clearTimeout(entry.resizeTimer)
     entry.resizeTimer = setTimeout(() => this.resizeEnd(id, null), RESIZE_SAFETY_MS)
@@ -259,18 +298,25 @@ export class NoteWindowManager {
     return this.options.service.setBounds(id, paper)
   }
 
-  setPassthrough(id: string, ignore: boolean): void {
+  /** The page's answer to the latest hit test of this note. */
+  hitResult(id: string, seq: number, hit: boolean): void {
+    const probe = this.hitProbes.get(id)
+    if (probe?.seq === seq) {
+      this.hitProbes.delete(id)
+      probe.resolve(hit)
+      return
+    }
     const entry = this.entries.get(id)
-    if (!entry || entry.win.isDestroyed() || !canPassThrough) return
-    const busy = entry.drag !== null || entry.resizeTimer !== null
-    if (ignore && !busy) entry.win.setIgnoreMouseEvents(true, { forward: true })
-    else entry.win.setIgnoreMouseEvents(false)
+    if (!entry || seq !== entry.hitSeq || entry.drag || entry.resizeTimer) return
+    if (isMouseButtonDown()) return
+    this.applyIgnore(entry, !hit)
   }
 
   async shutdown(): Promise<void> {
     this.quitting = true
     await this.flushAll()
     if (this.pinTimer) clearInterval(this.pinTimer)
+    if (this.hitTimer) clearTimeout(this.hitTimer)
     for (const entry of this.entries.values()) {
       entry.intentionalClose = true
       if (!entry.win.isDestroyed()) entry.win.destroy()
@@ -286,7 +332,7 @@ export class NoteWindowManager {
       show: false,
       frame: false,
       transparent: true,
-      backgroundColor: '#00000000',
+      backgroundColor: TRANSPARENT,
       hasShadow: false,
       thickFrame: false,
       resizable: false,
@@ -379,12 +425,19 @@ export class NoteWindowManager {
       drag: null,
       resizeTimer: null,
       revealed: false,
+      ignoring: null,
+      hitSeq: 0,
     }
     this.entries.set(id, entry)
     const webContentsId = win.webContents.id
     this.byWebContents.set(webContentsId, id)
     win.setMenu(null)
-    if (canPassThrough) win.setIgnoreMouseEvents(true, { forward: true })
+    this.applyIgnore(entry, true)
+    // A window shown later than it was created can come up with an opaque page
+    // background on Windows unless it is set again once the page has loaded.
+    win.webContents.on('did-finish-load', () => {
+      if (!win.isDestroyed()) win.setBackgroundColor(TRANSPARENT)
+    })
     win.webContents.setWindowOpenHandler(({ url }) => {
       if (/^https?:\/\//i.test(url) || /^mailto:/i.test(url)) void shell.openExternal(url)
       return { action: 'deny' }
@@ -417,28 +470,91 @@ export class NoteWindowManager {
       return
     }
     const win = entry.win
-    if (note.layer === 'desktop' && this.desktopPinSupported && !focus) {
+    win.setBackgroundColor(TRANSPARENT)
+    const finish = () => {
+      if (win.isDestroyed()) return
+      const layer = this.options.service.get(entry.id)?.layer ?? note.layer
+      this.applyLayer(entry, layer)
+      if (focus) {
+        win.show()
+        win.focus()
+        win.webContents.send(IPC.NOTE_FOCUS_EDITOR)
+      } else if (layer !== 'desktop') {
+        win.showInactive()
+      }
+      this.scheduleHitTest(0)
+    }
+    if (process.platform === 'win32') {
       // DWM only composes a transparent window's alpha correctly once it has
-      // been visible unobscured. Show it on top while invisible, then pin it.
+      // been visible unobscured (electron#40515, the same workaround LavaDesk's
+      // desktop layer uses). Show it on top while invisible, then settle it.
       win.setOpacity(0)
       win.setAlwaysOnTop(true, 'screen-saver')
       win.showInactive()
       setTimeout(() => {
         if (win.isDestroyed()) return
         win.setAlwaysOnTop(false)
-        this.applyLayer(entry, 'desktop')
+        finish()
         win.setOpacity(1)
-      }, 90)
+      }, DWM_SETTLE_MS)
       return
     }
-    this.applyLayer(entry, note.layer)
-    if (focus) {
-      win.show()
-      win.focus()
-      win.webContents.send(IPC.NOTE_FOCUS_EDITOR)
-    } else {
-      win.showInactive()
+    finish()
+  }
+
+  // ---- click-through ----
+
+  private applyIgnore(entry: Entry, ignore: boolean): void {
+    if (!canPassThrough || entry.win.isDestroyed() || entry.ignoring === ignore) return
+    entry.ignoring = ignore
+    if (ignore) entry.win.setIgnoreMouseEvents(true, { forward: true })
+    else entry.win.setIgnoreMouseEvents(false)
+  }
+
+  private scheduleHitTest(delay: number): void {
+    if (!canPassThrough || this.hitTimer || this.quitting) return
+    this.hitTimer = setTimeout(() => {
+      this.hitTimer = null
+      if (this.entries.size === 0 || this.quitting) return
+      const near = this.runHitTest()
+      this.scheduleHitTest(near ? HIT_TEST_ACTIVE_MS : HIT_TEST_IDLE_MS)
+    }, delay)
+  }
+
+  /**
+   * Clicks on the transparent margin around the paper must reach whatever is
+   * behind the note. Windows does not reliably forward mouse moves to a window
+   * that ignores the mouse, so the main process watches the cursor: over a
+   * note's window it asks the page whether the paper (or a menu on it) is under
+   * the cursor, and the window ignores the mouse everywhere else. Nothing
+   * switches while a button is held, so a drag or text selection that leaves
+   * the paper keeps going. Returns whether the cursor is over any note window.
+   */
+  private runHitTest(): boolean {
+    const cursor = screen.getCursorScreenPoint()
+    const held = isMouseButtonDown()
+    let near = false
+    for (const entry of this.entries.values()) {
+      const win = entry.win
+      if (win.isDestroyed() || !entry.revealed || !win.isVisible()) continue
+      if (entry.drag || entry.resizeTimer) {
+        this.applyIgnore(entry, false)
+        near = true
+        continue
+      }
+      const bounds = win.getContentBounds()
+      const inside = cursor.x >= bounds.x && cursor.x < bounds.x + bounds.width
+        && cursor.y >= bounds.y && cursor.y < bounds.y + bounds.height
+      if (!inside) {
+        if (!held) this.applyIgnore(entry, true)
+        continue
+      }
+      near = true
+      if (held || win.webContents.isLoading()) continue
+      entry.hitSeq += 1
+      win.webContents.send(IPC.NOTE_HIT_TEST, entry.hitSeq, cursor.x - bounds.x, cursor.y - bounds.y)
     }
+    return near
   }
 
   private focusEntry(entry: Entry): void {

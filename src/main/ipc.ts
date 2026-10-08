@@ -121,9 +121,9 @@ export function registerIpc(context: IpcContext): void {
     return windows.resizeEnd(id, valid ? { width: size.width as number, height: size.height as number } : null)
   })
 
-  ipcMain.on(IPC.NOTE_SET_PASSTHROUGH, (event, ignore: unknown) => {
+  ipcMain.on(IPC.NOTE_HIT_RESULT, (event, seq: unknown, hit: unknown) => {
     const id = noteOf(event)
-    if (id) windows.setPassthrough(id, ignore === true)
+    if (id && typeof seq === 'number') windows.hitResult(id, seq, hit === true)
   })
 
   ipcMain.on(IPC.NOTE_NEW, (event) => {

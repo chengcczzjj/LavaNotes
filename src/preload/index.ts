@@ -35,7 +35,7 @@ if (role === 'note') {
     dragEnd: () => ipcRenderer.send(IPC.NOTE_DRAG_END),
     resizeBegin: () => ipcRenderer.invoke(IPC.NOTE_RESIZE_BEGIN),
     resizeEnd: (size) => ipcRenderer.invoke(IPC.NOTE_RESIZE_END, size),
-    setPassthrough: (ignore) => ipcRenderer.send(IPC.NOTE_SET_PASSTHROUGH, ignore),
+    hitResult: (seq, hit) => ipcRenderer.send(IPC.NOTE_HIT_RESULT, seq, hit),
     newNote: () => ipcRenderer.send(IPC.NOTE_NEW),
     hide: () => ipcRenderer.send(IPC.NOTE_HIDE),
     remove: () => ipcRenderer.send(IPC.NOTE_DELETE),
@@ -49,6 +49,7 @@ if (role === 'note') {
     onUpdated: (listener) => subscribe<[NoteRecord]>(IPC.NOTE_UPDATED, listener),
     onPlayTear: (listener) => subscribe(IPC.NOTE_PLAY_TEAR, listener),
     onFocusEditor: (listener) => subscribe(IPC.NOTE_FOCUS_EDITOR, listener),
+    onHitTest: (listener) => subscribe<[number, number, number]>(IPC.NOTE_HIT_TEST, listener),
     onFlushRequest: (listener) => subscribe(IPC.NOTE_FLUSH_REQUEST, listener),
   }
   contextBridge.exposeInMainWorld('lavaNote', api)

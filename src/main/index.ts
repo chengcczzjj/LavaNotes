@@ -50,7 +50,7 @@ async function main(): Promise<void> {
   const windows = new NoteWindowManager({
     service,
     preload,
-    sharedProcess: process.env.LAVANOTES_ISOLATED_WINDOWS !== '1',
+    sharedProcess: process.env.LAVANOTES_SHARED_PROCESS === '1',
     log,
   })
 

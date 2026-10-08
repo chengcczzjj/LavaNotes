@@ -8,6 +8,7 @@ import type { NoteWindowManager } from './note-windows'
 import { storeImage } from './assets'
 import { openManagerWindow } from './manager-window'
 import { preloadPath } from './app-paths'
+import { runWindowsDesktopChecks } from './smoke-windows'
 
 interface SmokeContext {
   service: NotesService
@@ -73,8 +74,10 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
     const allRendered = await waitFor(async () => (await Promise.all([a, b, c].map((note) => rendered(note.id)))).every(Boolean))
     check('note windows render the editor', allRendered)
 
-    const pids = new Set([a, b, c, welcome].filter(Boolean).map((note) => windows.windowFor(note!.id)?.webContents.getOSProcessId()))
-    check('note windows share one renderer process', pids.size === 1, [...pids])
+    const opened = [a, b, c, welcome].filter(Boolean)
+    const pids = new Set(opened.map((note) => windows.windowFor(note!.id)?.webContents.getOSProcessId()))
+    if (windows.sharedProcess) check('note windows share one renderer process', pids.size === 1, [...pids])
+    else check('each note window has its own renderer process', pids.size === opened.length, [...pids])
 
     const text = await evalIn(a.id, `document.querySelector('.note-editor').innerText`)
     check('saved text is shown', String(text).includes('smoke A'), text)
@@ -84,6 +87,13 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
     const actual = winA.getBounds()
     check('window is the paper plus the transparent margin', actual.width === expected.width && actual.height === expected.height, { actual, expected })
     check('note windows are transparent', winA.getBackgroundColor().toLowerCase().startsWith('#00'), winA.getBackgroundColor())
+
+    // Click-through: the page tells the main process whether the paper is under a point.
+    const paperA = service.get(a.id)!.bounds
+    const marginA = getWindowMargin(service.get(a.id)!.rotation)
+    const onPaper = await windows.probeHit(a.id, marginA + paperA.width / 2, marginA + paperA.height / 2)
+    const onMargin = await windows.probeHit(a.id, 2, 2)
+    check('hit test finds the paper and lets the margin through', onPaper === true && onMargin === false, { onPaper, onMargin })
 
     // Resize: the window grows to the largest paper, then shrinks around the result.
     const margin = getWindowMargin(service.get(a.id)!.rotation)
@@ -140,6 +150,8 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
     check('completing a to-do tears it off into the archive', archived)
     await waitFor(() => !windows.windowFor(c.id), 3000)
     check('the torn-off note window closes', !windows.windowFor(c.id))
+
+    if (process.platform === 'win32') await runWindowsDesktopChecks({ service, windows, createNote, evalIn, check })
 
     // Manager window.
     const manager = openManagerWindow(preloadPath())

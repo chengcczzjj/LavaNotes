@@ -20,7 +20,8 @@ export const IPC = {
   NOTE_DRAG_END: 'note:drag-end',
   NOTE_RESIZE_BEGIN: 'note:resize-begin',
   NOTE_RESIZE_END: 'note:resize-end',
-  NOTE_SET_PASSTHROUGH: 'note:set-passthrough',
+  NOTE_HIT_TEST: 'note:hit-test',
+  NOTE_HIT_RESULT: 'note:hit-result',
   NOTE_NEW: 'note:new',
   NOTE_HIDE: 'note:hide',
   NOTE_DELETE: 'note:delete',
@@ -67,7 +68,8 @@ export interface NoteBridge {
   dragEnd(): void
   resizeBegin(): Promise<ResizeSession | null>
   resizeEnd(size: { width: number; height: number } | null): Promise<NoteRecord | null>
-  setPassthrough(ignore: boolean): void
+  /** Answer a hit test: is the paper (or a menu on it) under this window point? */
+  hitResult(seq: number, hit: boolean): void
   newNote(): void
   hide(): void
   remove(): void
@@ -81,6 +83,7 @@ export interface NoteBridge {
   onUpdated(listener: (note: NoteRecord) => void): () => void
   onPlayTear(listener: () => void): () => void
   onFocusEditor(listener: () => void): () => void
+  onHitTest(listener: (seq: number, x: number, y: number) => void): () => void
   onFlushRequest(listener: () => void): () => void
 }
 

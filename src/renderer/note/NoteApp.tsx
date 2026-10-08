@@ -16,41 +16,16 @@ const FONT_FAMILY_CSS: Record<NoteRecord['fontFamily'], string> = {
   handwritten: '"Segoe Print", "Comic Sans MS", "KaiTi", cursive',
 }
 
-const canPassThrough = /Windows|Macintosh/.test(navigator.userAgent)
-
 /**
  * Clicks on the transparent margin around the paper must reach whatever is
- * behind the note. The window ignores the mouse there and listens to forwarded
- * moves to notice when the pointer comes back over the paper.
+ * behind the note. The main process watches the cursor and asks the page
+ * whether the paper, or a menu on it, is under that point.
  */
-function usePassthrough(busy: React.MutableRefObject<boolean>): void {
-  useEffect(() => {
-    if (!canPassThrough) return undefined
-    let ignoring = true
-    const set = (ignore: boolean) => {
-      if (ignoring === ignore) return
-      ignoring = ignore
-      window.lavaNote.setPassthrough(ignore)
-    }
-    const onMove = (event: MouseEvent) => {
-      // Never switch while a button is held (text selection, drag, resize).
-      if (busy.current || event.buttons !== 0) {
-        set(false)
-        return
-      }
-      const element = document.elementFromPoint(event.clientX, event.clientY)
-      set(!element?.closest('[data-hit]'))
-    }
-    const onLeave = () => {
-      if (!busy.current) set(true)
-    }
-    document.addEventListener('mousemove', onMove)
-    document.documentElement.addEventListener('mouseleave', onLeave)
-    return () => {
-      document.removeEventListener('mousemove', onMove)
-      document.documentElement.removeEventListener('mouseleave', onLeave)
-    }
-  }, [busy])
+function useHitTest(busy: React.MutableRefObject<boolean>): void {
+  useEffect(() => window.lavaNote.onHitTest((seq, x, y) => {
+    const element = document.elementFromPoint(x, y)
+    window.lavaNote.hitResult(seq, busy.current || Boolean(element?.closest('[data-hit]')))
+  }), [busy])
 }
 
 export function NoteApp({ init }: { init: NoteInit }) {
@@ -65,7 +40,7 @@ export function NoteApp({ init }: { init: NoteInit }) {
   const menuButton = useRef<HTMLButtonElement>(null)
   const toastTimer = useRef<number | null>(null)
 
-  usePassthrough(busy)
+  useHitTest(busy)
 
   const showToast = useCallback((message: string) => {
     setToast(message)

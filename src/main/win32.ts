@@ -16,6 +16,7 @@ interface User32 {
   SetWindowLongPtrW(hwnd: number, index: number, value: number): number
   SetWindowPos(hwnd: number, after: number, x: number, y: number, cx: number, cy: number, flags: number): number
   IsWindow(hwnd: number): number
+  GetAsyncKeyState(key: number): number
 }
 
 const GWLP_HWNDPARENT = -8
@@ -43,12 +44,14 @@ function user32(): User32 | null {
     const setLong = lib.func('intptr_t __stdcall SetWindowLongPtrW(intptr_t hWnd, int nIndex, intptr_t dwNewLong)')
     const setPos = lib.func('int __stdcall SetWindowPos(intptr_t hWnd, intptr_t hWndInsertAfter, int X, int Y, int cx, int cy, uint32_t uFlags)')
     const isWindow = lib.func('int __stdcall IsWindow(intptr_t hWnd)')
+    const keyState = lib.func('int16_t __stdcall GetAsyncKeyState(int vKey)')
     api = {
       FindWindowExA: (parent, after, className, title) => Number(findWindowEx(parent, after, className, title)),
       GetWindowLongPtrW: (hwnd, index) => Number(getLong(hwnd, index)),
       SetWindowLongPtrW: (hwnd, index, value) => Number(setLong(hwnd, index, value)),
       SetWindowPos: (hwnd, after, x, y, cx, cy, flags) => Number(setPos(hwnd, after, x, y, cx, cy, flags)),
       IsWindow: (hwnd) => Number(isWindow(hwnd)),
+      GetAsyncKeyState: (key) => Number(keyState(key)),
     }
   } catch (error) {
     console.error('[win32] user32 unavailable', error)
@@ -59,6 +62,21 @@ function user32(): User32 | null {
 
 export function isDesktopPinSupported(): boolean {
   return user32() !== null
+}
+
+const VK_LBUTTON = 0x01
+const VK_RBUTTON = 0x02
+const VK_MBUTTON = 0x04
+
+/** A mouse button is held right now (Windows only; false elsewhere). */
+export function isMouseButtonDown(): boolean {
+  const u = user32()
+  if (!u) return false
+  try {
+    return [VK_LBUTTON, VK_RBUTTON, VK_MBUTTON].some((key) => (u.GetAsyncKeyState(key) & 0x8000) !== 0)
+  } catch {
+    return false
+  }
 }
 
 export function hwndOf(win: BrowserWindow): number {

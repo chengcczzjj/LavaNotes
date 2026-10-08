@@ -9,7 +9,8 @@ LavaDesk 里的便利贴画在一个铺满屏幕的透明 Canvas 窗口上。为
 LavaNotes 让每张便签成为一个只比纸张大一圈的透明窗口：
 
 - 焦点、输入法、Alt+Tab、前后顺序都是普通窗口的行为，不需要补偿。
-- 纸张外的一圈透明边距（放倾斜后的纸角、胶带、阴影）在 Windows/macOS 上鼠标穿透：窗口默认 `setIgnoreMouseEvents(true, { forward: true })`，渲染进程收到转发的鼠标移动后用 `elementFromPoint` 判断是否在纸上（`[data-hit]`），只在纸上时关闭穿透；按键按住期间不切换。
+- 纸张外的一圈透明边距（放倾斜后的纸角、胶带、阴影）在 Windows/macOS 上鼠标穿透。Windows 不会可靠地把鼠标移动转发给穿透中的窗口（1.0.0 因此整张便签点不动），所以由主进程轮询光标（在便签窗口上方时 30ms，否则 120ms）：光标在某个便签窗口内时，主进程把窗口内坐标发给页面，页面用 `elementFromPoint` 判断是否落在纸上（`[data-hit]`）并回答，主进程只在纸上时关闭穿透。拖动、缩放期间不穿透；任一鼠标键按住时（`GetAsyncKeyState`）不切换，文字选择拖出纸面也能继续。
+- 透明窗口在 Windows 上先以透明度 0 置顶显示一次再回到自己的层级，并在页面加载完成和显示前再次设置透明背景色；否则窗口可能带着不透明的白底出现（electron#40515，LavaDesk 桌面层用同样的处理）。
 - 边距只取决于倾斜角，按最大纸张尺寸计算（`getWindowMargin`）。纸张缩放时边距不变，纸在窗口里的位置就不会跳。
 
 ### 缩放
@@ -20,11 +21,11 @@ Electron 文档说明透明窗口不能用系统方式缩放。右下角折角�
 
 渲染进程在纸条/胶带/纸边按下并移动超过 3px 后发 `dragStart`，之后每帧发 `dragMove`；主进程用 `screen.getCursorScreenPoint()` 计算新位置并 `setPosition`，避免渲染进程坐标在多屏混合 DPI 下的偏差。
 
-### 共享渲染进程
+### 渲染进程
 
-一个隐藏的 host 页面用同源 `window.open` 打开所有便签窗口（`setWindowOpenHandler` 给出透明窗口参数）。同源子窗口与 host 在同一个渲染进程里，便签再多也只有一个渲染进程。`host` 进程崩溃时会重建 host 并重新打开所有可见便签。设置环境变量 `LAVANOTES_ISOLATED_WINDOWS=1` 可退回每窗口一个进程（排查问题用）。
+默认每个便签窗口用 `new BrowserWindow` 单独创建，各有一个渲染进程。1.0.0 让所有便签由一个隐藏 host 页面通过同源 `window.open` 打开以共享渲染进程，但在 Windows 上这样打开的透明窗口出现了不透明白底，1.0.1 起改回经过验证的普通创建方式。共享方式仍保留在代码里，设置环境变量 `LAVANOTES_SHARED_PROCESS=1` 可启用（host 进程崩溃时会重建并重新打开所有可见便签）。
 
-因为进程共享，preload 不能用进程参数区分窗口角色，而是按页面路径（`/note/`、`/manager/`、`/host/`）只暴露对应 API；主进程按 `webContents.id` 反查便签，每个便签窗口只能操作自己的便签。
+preload 按页面路径（`/note/`、`/manager/`、`/host/`）只暴露对应 API，两种方式通用；主进程按 `webContents.id` 反查便签，每个便签窗口只能操作自己的便签。
 
 ## 钉在桌面
 
@@ -54,5 +55,6 @@ Electron 文档说明透明窗口不能用系统方式缩放。右下角折角�
 ## 验证
 
 - `npm test`：类型检查、lint、`tests/*.test.mjs` 单元测试（模型、几何、存储、图片、NotesService）。
-- `npm run test:smoke`：构建后用独立 userData 启动应用，驱动真实窗口检查共享进程、渲染、打字保存、表格、图片加载、缩放、层级、撕下归档和管理窗口。CI 在 Linux（xvfb）和发布时在 Windows 上运行。
-- 钉在桌面、Win+D / Win+M、透明合成与输入法属于 Windows 桌面行为，自动测试只能证明调用不报错，需要在真实 Windows 上验收。
+- `npm run test:smoke`：构建后用独立 userData 启动应用，驱动真实窗口检查渲染进程、命中测试、渲染、打字保存、表格、图片加载、缩放、层级、撕下归档和管理窗口。CI 在 Linux（xvfb）和 Windows 上运行，发布前在 Windows 上再跑一次。
+- Windows 上的冒烟测试另外在便签后放一个红色窗口：截屏确认透明边距透出红色、纸面正常绘制，并用真实鼠标点击确认边距点击落到后面的窗口、纸面点击落到便签（`src/main/smoke-windows.ts`；运行环境无法截屏或移动光标时记为跳过）。
+- 钉在桌面、Win+D / Win+M、输入法和多屏混合 DPI 仍需要在真实 Windows 上验收。
