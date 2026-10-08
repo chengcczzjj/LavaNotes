@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { Check, Clock3, Ellipsis, Layers, Pin, Plus } from 'lucide-react'
+import { Check, Ellipsis, Layers, Pin, Plus } from 'lucide-react'
 import type { NoteInit, NotePatch, NoteRecord } from '@shared/types'
-import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH, TODO_CATEGORY_LABELS, formatDueLabel, isTodoOverdue } from '@shared/note-model'
+import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH } from '@shared/note-model'
 import { getWindowMargin } from '@shared/geometry'
 import { NoteEditor, type NoteEditorHandle } from './NoteEditor'
 import { NoteMenu } from './NoteMenu'
@@ -162,8 +162,6 @@ export function NoteApp({ init }: { init: NoteInit }) {
 
   const margin = getWindowMargin(note.rotation)
   const size = liveSize ?? { width: note.bounds.width, height: note.bounds.height }
-  const todo = note.todo
-  const overdue = isTodoOverdue(todo)
   const style = {
     left: margin,
     top: margin,
@@ -174,7 +172,6 @@ export function NoteApp({ init }: { init: NoteInit }) {
     '--note-font-family': FONT_FAMILY_CSS[note.fontFamily],
   } as CSSProperties
 
-  const compact = size.width < 210
   const short = size.height < 170
 
   return (
@@ -183,18 +180,14 @@ export function NoteApp({ init }: { init: NoteInit }) {
         className="note"
         data-hit
         data-color={note.color}
-        data-paper={note.paperStyle}
         data-tearing={tearing}
         data-editing={editing}
-        data-compact={compact}
         data-short={short}
         style={style}
         onPointerDownCapture={() => window.lavaNote.activated()}
         aria-label="便签"
       >
-        <div className="note__mount" onPointerDown={onDragPointerDown} aria-hidden>
-          {note.paperStyle === 'pin' && <i />}
-        </div>
+        <div className="note__mount" onPointerDown={onDragPointerDown} aria-hidden />
         <div className="note__paper">
           <div className="note__grain" aria-hidden />
           <div className="note__tear-edge" aria-hidden />
@@ -202,28 +195,15 @@ export function NoteApp({ init }: { init: NoteInit }) {
             <button type="button" className="note__icon" title="新建便签 Ctrl+N" aria-label="新建便签" onClick={() => window.lavaNote.newNote()}>
               <Plus size={16} strokeWidth={1.9} />
             </button>
-            <div className="note__status">
-              {todo ? (
-                <>
-                  <span className="note__chip" data-category={todo.category}><i />{TODO_CATEGORY_LABELS[todo.category]}</span>
-                  {todo.dueAt !== undefined && !short && (
-                    <time className="note__chip" data-overdue={overdue}>
-                      <Clock3 size={10} />
-                      {overdue ? '已逾期' : formatDueLabel(todo.dueAt)}
-                    </time>
-                  )}
-                  {todo.priority === 'high' && !compact && <b className="note__chip note__chip--high">重要</b>}
-                </>
-              ) : null}
-            </div>
-            {note.layer === 'desktop' && <span className="note__icon note__icon--badge" title="已钉在桌面，可在 ⋯ → 窗口里取消"><Pin size={13} /></span>}
+            <span className="note__spacer" />
+            {note.layer === 'desktop' && <span className="note__icon note__icon--badge" title="钉在桌面"><Pin size={13} /></span>}
             {note.layer === 'top' && <span className="note__icon note__icon--badge" title="置顶"><Layers size={13} /></span>}
             <button
               type="button"
               className="note__icon note__icon--done"
               title="完成并撕下"
               aria-label="完成并撕下"
-              disabled={tearing || todo?.done}
+              disabled={tearing}
               onClick={() => window.lavaNote.complete()}
             >
               <Check size={15} strokeWidth={2.4} />
@@ -232,7 +212,7 @@ export function NoteApp({ init }: { init: NoteInit }) {
               ref={menuButton}
               type="button"
               className="note__icon"
-              title="更多：纸色、待办、窗口层级"
+              title="更多：纸色、便签管理、删除"
               aria-label="更多设置"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((open) => !open)}
@@ -244,7 +224,6 @@ export function NoteApp({ init }: { init: NoteInit }) {
           {menuOpen && (
             <NoteMenu
               note={note}
-              desktopPinSupported={init.desktopPinSupported}
               anchor={menuButton}
               onPatch={patch}
               onClose={() => setMenuOpen(false)}

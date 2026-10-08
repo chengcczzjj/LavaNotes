@@ -23,7 +23,6 @@ export const IPC = {
   NOTE_HIT_TEST: 'note:hit-test',
   NOTE_HIT_RESULT: 'note:hit-result',
   NOTE_NEW: 'note:new',
-  NOTE_HIDE: 'note:hide',
   NOTE_DELETE: 'note:delete',
   NOTE_COMPLETE: 'note:complete',
   NOTE_TEAR_FINISHED: 'note:tear-finished',
@@ -40,10 +39,8 @@ export const IPC = {
   // manager window
   MANAGER_SNAPSHOT: 'manager:snapshot',
   MANAGER_CREATE: 'manager:create',
-  MANAGER_PATCH: 'manager:patch',
   MANAGER_SET_VISIBLE: 'manager:set-visible',
   MANAGER_FOCUS: 'manager:focus',
-  MANAGER_COMPLETE: 'manager:complete',
   MANAGER_REOPEN: 'manager:reopen',
   MANAGER_DELETE: 'manager:delete',
   MANAGER_CLEAR_ARCHIVED: 'manager:clear-archived',
@@ -71,7 +68,6 @@ export interface NoteBridge {
   /** Answer a hit test: is the paper (or a menu on it) under this window point? */
   hitResult(seq: number, hit: boolean): void
   newNote(): void
-  hide(): void
   remove(): void
   complete(): void
   tearFinished(): void
@@ -90,10 +86,8 @@ export interface NoteBridge {
 export interface ManagerBridge {
   snapshot(): Promise<ManagerSnapshot>
   create(options: CreateNoteOptions): Promise<NoteRecord | null>
-  patch(id: string, patch: NotePatch): Promise<NoteRecord | null>
   setVisible(id: string, visible: boolean): Promise<void>
   focus(id: string): Promise<void>
-  complete(id: string): Promise<void>
   reopen(id: string): Promise<void>
   remove(id: string): Promise<void>
   clearArchived(): Promise<number>

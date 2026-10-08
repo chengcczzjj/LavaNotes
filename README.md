@@ -5,7 +5,7 @@
 <h1 align="center">LavaNotes</h1>
 
 <p align="center">
-  <b>Desktop sticky notes that look like real paper — tilted sheets, tape and pins, images and tables, and notes you can pin to the desktop.</b>
+  <b>Desktop sticky notes that look like real paper — scattered, tilted sheets with washi tape, images and tables, and a ✓ to tear off what is done.</b>
 </p>
 
 <p align="center"><b>English</b> · <a href="README.zh-CN.md">简体中文</a></p>
@@ -14,8 +14,8 @@
 
 ## Features
 
-- **Every note is its own window**: transparent and paper-shaped, slightly tilted, with grain, shadow and tape, a pin or nothing on top. Notes overlap freely; the one you click comes to the front.
-- **Three window layers**, chosen per note:
+- **Every note is its own window**: transparent and paper-shaped, with grain, shadow and washi tape. New notes lean left and right in turn and are spread out instead of piling up on one spot; the one you click comes to the front.
+- **Window layer for new notes**, chosen in Manager → Settings:
   - **Normal** — an ordinary window that other apps can cover;
   - **On top** — always in front;
   - **Pinned to the desktop** — sits above the desktop icons and below every window, so you only see it where the desktop shows. **Show Desktop (Win+D) and Minimize All (Win+M) leave it alone.**
@@ -23,9 +23,8 @@
 - **Rich text**: bold, italic, underline, strikethrough, bullet and numbered lists, checklists.
 - **Images**: insert, paste a screenshot or drag a file in; drag a corner to resize. Images are stored as separate files, so notes stay light.
 - **Simple tables**: insert 3×3, add or remove rows and columns, toggle the header row, drag column widths.
-- **Done — tear it off**: the ✓ at the top right tears the note off into the archive; restore it from the manager.
-- **Notes first, to-dos optional**: a new note is just a note. Turn it into a to-do from the ⋯ menu to get a due date, a category and a reminder.
-- **Manager**: search all notes, to-dos grouped by date, a weekly review and the archive of torn-off notes (restore any of them).
+- **Done — tear it off**: the ✓ at the top right means done; the note is torn off into the archive, and you can put it back from the manager.
+- **Manager**: search all notes and browse the torn-off ones (put them back or delete them).
 - **Tray app** that starts with Windows and updates itself from GitHub Releases.
 
 ## Download
@@ -34,7 +33,7 @@ Get `LavaNotes-Setup-<version>.exe` from [Releases](https://github.com/chengcczz
 
 ## Data
 
-Everything stays on your PC in `%APPDATA%\LavaNotes`: `notes-index.json` (positions, colours, layers, to-do fields) with a backup copy, one `notes/<id>.json` per note body, `assets/<sha256>.<ext>` for images and `settings.json`. Files are written to a temporary file and renamed into place; a damaged index is moved aside and restored from the backup, never overwritten.
+Everything stays on your PC in `%APPDATA%\LavaNotes`: `notes-index.json` (positions, colours, layers, when a note was torn off) with a backup copy, one `notes/<id>.json` per note body, `assets/<sha256>.<ext>` for images and `settings.json`. Files are written to a temporary file and renamed into place; a damaged index is moved aside and restored from the backup, never overwritten.
 
 Other apps can open LavaNotes with `lavanotes://new`, `lavanotes://manager` and `lavanotes://open`.
 

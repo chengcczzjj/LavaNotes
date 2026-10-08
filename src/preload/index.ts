@@ -37,7 +37,6 @@ if (role === 'note') {
     resizeEnd: (size) => ipcRenderer.invoke(IPC.NOTE_RESIZE_END, size),
     hitResult: (seq, hit) => ipcRenderer.send(IPC.NOTE_HIT_RESULT, seq, hit),
     newNote: () => ipcRenderer.send(IPC.NOTE_NEW),
-    hide: () => ipcRenderer.send(IPC.NOTE_HIDE),
     remove: () => ipcRenderer.send(IPC.NOTE_DELETE),
     complete: () => ipcRenderer.send(IPC.NOTE_COMPLETE),
     tearFinished: () => ipcRenderer.send(IPC.NOTE_TEAR_FINISHED),
@@ -57,10 +56,8 @@ if (role === 'note') {
   const api: ManagerBridge = {
     snapshot: () => ipcRenderer.invoke(IPC.MANAGER_SNAPSHOT),
     create: (options) => ipcRenderer.invoke(IPC.MANAGER_CREATE, options),
-    patch: (id, patch) => ipcRenderer.invoke(IPC.MANAGER_PATCH, id, patch),
     setVisible: (id, visible) => ipcRenderer.invoke(IPC.MANAGER_SET_VISIBLE, id, visible),
     focus: (id) => ipcRenderer.invoke(IPC.MANAGER_FOCUS, id),
-    complete: (id) => ipcRenderer.invoke(IPC.MANAGER_COMPLETE, id),
     reopen: (id) => ipcRenderer.invoke(IPC.MANAGER_REOPEN, id),
     remove: (id) => ipcRenderer.invoke(IPC.MANAGER_DELETE, id),
     clearArchived: () => ipcRenderer.invoke(IPC.MANAGER_CLEAR_ARCHIVED),

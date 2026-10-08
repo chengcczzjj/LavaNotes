@@ -77,7 +77,6 @@ button.danger { border-color: rgba(166, 68, 57, 0.5); color: var(--danger); }
 .sidebar nav { display: flex; flex-direction: column; gap: 3px; }
 .sidebar nav button { justify-content: flex-start; min-height: 34px; border-color: transparent; background: transparent; }
 .sidebar nav button[data-active="true"] { border-color: var(--line); background: var(--surface); font-weight: 600; }
-.sidebar nav button em { margin-left: auto; padding: 0 7px; border-radius: 99px; color: var(--accent-ink); background: var(--accent); font-size: 11px; font-style: normal; }
 .sidebar__stats { display: flex; gap: 14px; margin-top: auto; padding: 0 6px; color: var(--muted); }
 .sidebar__stats strong { margin-right: 3px; color: var(--ink); font-size: 16px; }
 .sidebar__show { width: 100%; }
@@ -134,42 +133,11 @@ main { min-width: 0; overflow: auto; padding: 22px 26px; }
 .card__actions { display: flex; gap: 5px; }
 .card__actions button { min-height: 27px; padding: 0 8px; font-size: 12px; }
 
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-}
-.composer textarea { min-height: 64px; resize: vertical; border: 0; outline: 0; background: transparent; font-size: 14px; }
-.composer__options { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.composer__options .primary { margin-left: auto; }
-
 .segmented { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .segmented button { min-height: 28px; padding: 0 10px; font-size: 12px; }
 .segmented button[data-selected="true"] { border-color: rgba(74, 62, 40, 0.5); background: #fff; font-weight: 600; }
 
-.swatches { display: inline-flex; gap: 5px; }
-.swatches button {
-  width: 22px;
-  min-height: 22px;
-  height: 22px;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  background: var(--paper-bottom);
-}
-.swatches button[data-selected="true"] { border-color: var(--ink); }
-.check { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
-
-.todo-group { display: flex; flex-direction: column; gap: 6px; }
-.todo-group h3 { display: flex; align-items: center; gap: 7px; margin: 8px 0 2px; font-size: 13px; }
-.todo-group h3 span { color: var(--muted); font-weight: 400; }
-.todo-group[data-bucket="overdue"] h3 { color: var(--danger); }
-
-.todo-row {
+.archive-row {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -178,31 +146,11 @@ main { min-width: 0; overflow: auto; padding: 22px 26px; }
   border-left: 5px solid var(--paper-bottom);
   border-radius: 9px;
   background: var(--surface);
+  opacity: 0.85;
 }
-.todo-row[data-done] { opacity: 0.85; }
-.todo-row__check { width: 28px; min-height: 28px; padding: 0; border-radius: 50%; color: rgba(51, 48, 42, 0.35); }
-.todo-row__check:hover { color: #fff; border-color: #4d7b60; background: #5f9472; }
-.todo-row__main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.todo-row__main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.todo-row__main span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
-.todo-row__main b { color: var(--danger); font-weight: 600; }
-.todo-row__main em { font-style: normal; }
-.todo-row select { height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
-
-.week-nav { display: flex; align-items: center; gap: 10px; }
-.week-nav span { color: var(--muted); }
-.week-nav button { width: 30px; padding: 0; }
-.headline { margin: 0; font-size: 16px; line-height: 1.5; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
-.stats div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
-.stats strong { font-size: 22px; }
-.stats span { color: var(--muted); }
-.bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; height: 160px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
-.bars__day { display: grid; grid-template-rows: 1fr auto auto; justify-items: center; gap: 4px; }
-.bars__track { position: relative; width: 22px; height: 100%; border-radius: 6px; background: rgba(74, 62, 40, 0.07); overflow: hidden; }
-.bars__fill { position: absolute; right: 0; bottom: 0; left: 0; border-radius: 6px; background: linear-gradient(180deg, #f2a36f, var(--accent)); }
-.bars__day span { color: var(--muted); font-size: 12px; }
-.bars__day em { font-style: normal; font-weight: 600; font-size: 12px; }
+.archive-row__main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.archive-row__main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.archive-row__main span { color: var(--muted); font-size: 12px; }
 
 .settings { gap: 10px; }
 .setting {

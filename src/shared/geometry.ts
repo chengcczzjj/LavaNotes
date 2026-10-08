@@ -70,27 +70,63 @@ export function ensurePaperReachable(paper: NoteBounds, workAreas: readonly Rect
   }
 }
 
+/** A new note never starts this close (on both axes) to where another note starts. */
+export const NEW_NOTE_CLEARANCE = 48
+
+function clampTo(value: number, min: number, max: number): number {
+  return Math.round(Math.max(min, Math.min(value, max)))
+}
+
 /**
- * Default spot for a new note, the cascade LavaDesk used for its sticky notes:
- * from about two thirds across the top of the work area, each note 28px right
- * and 22px down from the last, six to a run, each run 36px left and 34px down.
- * The notes overlap on purpose so their alternating tilts show.
+ * Spots for new notes, in the order they are used. Runs of up to five go
+ * leftwards from near the top right, each note a bit under half a paper width
+ * from the last and alternately higher and lower; each later run starts lower
+ * and half a step further left. Neighbours overlap by about a third, so every
+ * note stays readable while the stack still looks scattered.
  */
+export function newNoteSlots(size: { width: number; height: number }, workArea: Rect): Array<{ x: number; y: number }> {
+  const pad = 16
+  const stepX = Math.round(size.width * 0.45)
+  const zigzag = Math.round(size.height * 0.35)
+  const runDrop = Math.round(size.height * 0.8)
+  const minX = workArea.x + pad
+  const maxX = Math.max(minX, workArea.x + workArea.width - size.width - pad)
+  const minY = workArea.y + pad
+  const maxY = Math.max(minY, workArea.y + workArea.height - size.height - pad)
+  const startX = Math.max(minX, workArea.x + workArea.width - size.width - 72)
+  const startY = workArea.y + Math.min(120, Math.round(workArea.height * 0.12))
+  const perRun = Math.max(1, Math.min(5, Math.floor((startX - minX) / stepX) + 1))
+  const slots: Array<{ x: number; y: number }> = []
+  for (let run = 0; run < 3; run += 1) {
+    for (let index = 0; index < perRun; index += 1) {
+      slots.push({
+        x: clampTo(startX - index * stepX - run * Math.round(stepX / 2), minX, maxX),
+        y: clampTo(startY + (index % 2) * zigzag + run * runDrop, minY, maxY),
+      })
+    }
+  }
+  return slots
+}
+
+/** Default spot for a new note: the first slot no other note on that screen already starts at. */
 export function placeNewNote(
   size: { width: number; height: number },
   workArea: Rect,
-  existingCount: number,
+  existing: readonly NoteBounds[],
 ): NoteBounds {
-  const column = existingCount % 6
-  const row = Math.floor(existingCount / 6) % 3
-  const x = workArea.x + workArea.width * 0.66 - size.width / 2 + column * 28 - row * 36
-  const y = workArea.y + Math.min(150, workArea.height * 0.17) + column * 22 + row * 34
-  const minX = workArea.x + 16
-  const minY = workArea.y + 16
-  return {
-    x: Math.round(Math.max(minX, Math.min(x, workArea.x + workArea.width - size.width - 16))),
-    y: Math.round(Math.max(minY, Math.min(y, workArea.y + workArea.height - size.height - 16))),
-    width: size.width,
-    height: size.height,
+  const slots = newNoteSlots(size, workArea)
+  const taken = (spot: { x: number; y: number }) => existing.some((note) => (
+    Math.abs(note.x - spot.x) < NEW_NOTE_CLEARANCE && Math.abs(note.y - spot.y) < NEW_NOTE_CLEARANCE
+  ))
+  let spot = slots.find((slot) => !taken(slot))
+  if (!spot) {
+    // Every slot is in use: go round again, shifted so the new note is not exactly on an old one.
+    const lap = Math.floor(existing.length / slots.length) + 1
+    const base = slots[existing.length % slots.length]
+    spot = {
+      x: clampTo(base.x - lap * 24, workArea.x + 16, Math.max(workArea.x + 16, workArea.x + workArea.width - size.width - 16)),
+      y: clampTo(base.y + lap * 24, workArea.y + 16, Math.max(workArea.y + 16, workArea.y + workArea.height - size.height - 16)),
+    }
   }
+  return { ...spot, width: size.width, height: size.height }
 }

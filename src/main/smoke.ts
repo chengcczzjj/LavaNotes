@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { writeFile } from 'node:fs/promises'
 import type { CreateNoteOptions, NoteRecord } from '@shared/types'
-import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, createTodo } from '@shared/note-model'
+import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH } from '@shared/note-model'
 import { getWindowMargin, windowBoundsForPaper } from '@shared/geometry'
 import type { NotesService } from './notes-service'
 import type { NoteWindowManager } from './note-windows'
@@ -69,7 +69,7 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
 
     const a = await createNote({ text: 'smoke A', focus: false })
     const b = await createNote({ text: 'smoke B', focus: false })
-    const c = await createNote({ text: 'smoke C', focus: false, todo: createTodo({ text: 'smoke C' }) })
+    const c = await createNote({ text: 'smoke C', focus: false })
     if (!a || !b || !c) throw new Error('create failed')
     const allRendered = await waitFor(async () => (await Promise.all([a, b, c].map((note) => rendered(note.id)))).every(Boolean))
     check('note windows render the editor', allRendered)
@@ -144,19 +144,22 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
     check('pin to desktop keeps the window open', Boolean(windows.windowFor(b.id)), { supported: windows.desktopPinSupported })
     service.patch(b.id, { layer: 'normal' })
 
-    // Finishing a to-do plays the tear animation and archives it.
+    // Finishing a note plays the tear animation and archives it.
     completeNote(c.id)
     const archived = await waitFor(() => service.get(c.id)?.archivedAt !== undefined, 4000)
-    check('completing a to-do tears it off into the archive', archived)
+    check('completing a note tears it off into the archive', archived)
     await waitFor(() => !windows.windowFor(c.id), 3000)
     check('the torn-off note window closes', !windows.windowFor(c.id))
 
-    // The check in the top bar finishes a plain note the same way.
+    // The ✓ in the top bar does the same from the page, and the note can be put back.
     const d = await createNote({ text: 'smoke D', focus: false })
     const dReady = Boolean(d) && await waitFor(() => rendered(d!.id))
     if (d && dReady) await evalIn(d.id, `document.querySelector('.note__icon--done').click()`)
-    const plainArchived = Boolean(d) && await waitFor(() => service.get(d!.id)?.archivedAt !== undefined, 4000)
-    check('the top-bar check tears a plain note off into the archive', dReady && plainArchived && service.get(d!.id)?.todo?.done === true)
+    const dArchived = Boolean(d) && await waitFor(() => service.get(d!.id)?.archivedAt !== undefined, 4000)
+    check('the ✓ in the top bar tears the note off into the archive', dReady && dArchived)
+    if (d) service.reopen(d.id)
+    const dBack = Boolean(d) && await waitFor(() => rendered(d!.id), 5000)
+    check('a torn-off note can be put back', dBack && service.get(d!.id)?.visible === true)
 
     if (process.platform === 'win32') await runWindowsDesktopChecks({ service, windows, createNote, evalIn, check })
 

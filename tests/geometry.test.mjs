@@ -4,6 +4,7 @@ import {
   DECORATION_PAD,
   ensurePaperReachable,
   getWindowMargin,
+  NEW_NOTE_CLEARANCE,
   isPaperReachable,
   paperOriginForWindow,
   placeNewNote,
@@ -48,24 +49,34 @@ test('a note left on an unplugged monitor comes back to a visible work area', ()
   assert.deepEqual(ensurePaperReachable(partly, [primary], primary), partly)
 })
 
-test('new notes cascade like LavaDesk sticky notes and stay inside the work area', () => {
-  const area = { x: 100, y: 40, width: 1600, height: 900 }
+test('new notes are spread out, never start on another note and stay inside the work area', () => {
+  const area = { x: 100, y: 40, width: 1920, height: 1040 }
   const size = { width: 300, height: 290 }
-  const spots = Array.from({ length: 8 }, (_, count) => placeNewNote(size, area, count))
-  assert.deepEqual(spots[0], { x: 100 + 1056 - 150, y: 40 + 150, ...size })
-  // Six to a run, each one 28px right and 22px down.
-  assert.deepEqual([spots[1].x - spots[0].x, spots[1].y - spots[0].y], [28, 22])
-  assert.deepEqual([spots[5].x - spots[0].x, spots[5].y - spots[0].y], [140, 110])
-  // The next run starts 36px left and 34px below the first.
-  assert.deepEqual([spots[6].x - spots[0].x, spots[6].y - spots[0].y], [-36, 34])
-  assert.deepEqual([spots[7].x - spots[6].x, spots[7].y - spots[6].y], [28, 22])
+  const inside = (spot, work) => spot.x >= work.x + 16 && spot.x + spot.width <= work.x + work.width - 16
+    && spot.y >= work.y + 16 && spot.y + spot.height <= work.y + work.height - 16
+  const placed = []
+  for (let count = 0; count < 12; count += 1) placed.push(placeNewNote(size, area, placed))
 
-  const laptop = { x: 0, y: 0, width: 800, height: 600 }
-  for (let count = 0; count < 20; count += 1) {
-    const spot = placeNewNote(size, laptop, count)
-    assert.ok(spot.x >= 16 && spot.x + spot.width <= 800 - 16, `x for ${count}`)
-    assert.ok(spot.y >= 16 && spot.y + spot.height <= 600 - 16, `y for ${count}`)
+  // Neighbours sit a bit under half a note apart, alternately higher and lower.
+  const [first, second, third] = placed
+  assert.deepEqual(first, { x: 100 + 1920 - 300 - 72, y: 40 + 120, ...size })
+  assert.equal(first.x - second.x, 135)
+  assert.equal(second.y - first.y, 102)
+  assert.equal(third.y, first.y)
+  for (const [index, a] of placed.entries()) {
+    assert.ok(inside(a, area), `note ${index} inside`)
+    for (const b of placed.slice(index + 1)) {
+      assert.ok(Math.abs(a.x - b.x) >= NEW_NOTE_CLEARANCE || Math.abs(a.y - b.y) >= NEW_NOTE_CLEARANCE, 'no two notes start together')
+    }
   }
+  // A spot freed by moving a note away is used again first.
+  const moved = placed.map((note, index) => (index === 1 ? { ...note, x: note.x - 400, y: note.y + 500 } : note))
+  assert.deepEqual(placeNewNote(size, area, moved), second)
+
+  const laptop = { x: 0, y: 0, width: 1366, height: 728 }
+  const onLaptop = []
+  for (let count = 0; count < 20; count += 1) onLaptop.push(placeNewNote(size, laptop, onLaptop))
+  onLaptop.forEach((spot, index) => assert.ok(inside(spot, laptop), `laptop note ${index} inside`))
   // A work area smaller than the note keeps its top-left corner reachable.
-  assert.deepEqual(placeNewNote(size, { x: 0, y: 0, width: 250, height: 250 }, 3), { x: 16, y: 16, ...size })
+  assert.deepEqual(placeNewNote(size, { x: 0, y: 0, width: 250, height: 250 }, []), { x: 16, y: 16, ...size })
 })

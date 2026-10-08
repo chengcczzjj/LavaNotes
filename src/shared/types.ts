@@ -1,10 +1,7 @@
 export type NoteColor = 'butter' | 'rose' | 'mint' | 'sky' | 'lilac'
-export type PaperStyle = 'tape' | 'pin' | 'plain'
 /** normal: an ordinary window; top: always on top; desktop: pinned to the desktop layer. */
 export type NoteLayer = 'normal' | 'top' | 'desktop'
 export type NoteFontFamily = 'system' | 'serif' | 'mono' | 'handwritten'
-export type TodoCategory = 'work' | 'study' | 'life' | 'health' | 'other'
-export type TodoPriority = 'high' | 'normal' | 'low'
 
 /** The unrotated paper rectangle in screen DIP coordinates. The window is larger. */
 export interface NoteBounds {
@@ -12,18 +9,6 @@ export interface NoteBounds {
   y: number
   width: number
   height: number
-}
-
-/** Present only when the note is used as a to-do. Plain notes have no todo. */
-export interface NoteTodo {
-  done: boolean
-  dueAt?: number
-  completedAt?: number
-  category: TodoCategory
-  priority: TodoPriority
-  remind: boolean
-  /** The dueAt that already produced a reminder; changing dueAt re-arms it. */
-  remindedFor?: number
 }
 
 export interface NoteRecord {
@@ -37,7 +22,6 @@ export interface NoteRecord {
   /** Derived from the content. */
   imageCount: number
   color: NoteColor
-  paperStyle: PaperStyle
   /** Degrees, kept within ±ROTATION_LIMIT. */
   rotation: number
   fontFamily: NoteFontFamily
@@ -47,8 +31,7 @@ export interface NoteRecord {
   /** Whether the note window is shown. */
   visible: boolean
   lastActiveAt: number
-  todo?: NoteTodo
-  /** Set when a finished to-do is torn off. Archived notes stay hidden until restored. */
+  /** Set when the note is finished and torn off. Archived notes stay hidden until restored. */
   archivedAt?: number
 }
 
@@ -73,13 +56,10 @@ export interface NoteContentFile {
 /** Appearance and behaviour fields a window or the manager may change. */
 export interface NotePatch {
   color?: NoteColor
-  paperStyle?: PaperStyle
   rotation?: number
   fontFamily?: NoteFontFamily
   fontSize?: number
   layer?: NoteLayer
-  /** null turns the note back into a plain note. */
-  todo?: NoteTodo | null
 }
 
 export interface AppSettings {
@@ -94,7 +74,6 @@ export interface NoteInit {
   /** Distance from the window edge to the paper edge, in DIP. */
   margin: number
   platform: string
-  desktopPinSupported: boolean
   /** True when the note was just created and should take keyboard focus. */
   focusEditor: boolean
 }
@@ -107,9 +86,7 @@ export interface ResizeSession {
 export interface CreateNoteOptions {
   text?: string
   color?: NoteColor
-  paperStyle?: PaperStyle
   layer?: NoteLayer
-  todo?: NoteTodo
   /** Start the new note in the cascade on the display showing this note. */
   nearNoteId?: string
   focus?: boolean

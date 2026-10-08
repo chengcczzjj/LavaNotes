@@ -76,7 +76,7 @@ select {
   mix-blend-mode: multiply;
 }
 
-/* ---- tape / pin / plain ---- */
+/* ---- tape ---- */
 
 .note__mount {
   position: absolute;
@@ -93,41 +93,6 @@ select {
   box-shadow: 0 2px 5px rgba(64, 45, 21, 0.12);
   clip-path: polygon(3% 8%, 98% 0, 95% 94%, 0 100%);
   cursor: grab;
-}
-
-.note[data-paper="pin"] .note__mount {
-  top: -8px;
-  width: 23px;
-  height: 23px;
-  overflow: visible;
-  transform: translateX(-50%);
-  border: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle at 34% 28%, #fff5db 0 7%, #dd7562 12% 45%, #9d3f36 70% 100%);
-  box-shadow: 0 4px 5px rgba(67, 31, 25, 0.28);
-  clip-path: none;
-}
-
-.note[data-paper="pin"] .note__mount i {
-  position: absolute;
-  left: 50%;
-  top: 19px;
-  width: 2px;
-  height: 9px;
-  transform: translateX(-50%);
-  background: #766858;
-}
-
-.note[data-paper="plain"] .note__mount {
-  top: 4px;
-  width: 34px;
-  height: 7px;
-  opacity: 0.22;
-  border: 0;
-  border-radius: 99px;
-  background: var(--paper-edge);
-  box-shadow: none;
-  clip-path: none;
 }
 
 /* ---- top bar ---- */
@@ -166,43 +131,12 @@ select {
 
 .note__icon:hover,
 .note__icon[aria-expanded="true"] { color: #30302a; background: rgba(255, 255, 255, 0.3); }
-.note__icon[data-active="true"] { color: #8a3b2f; background: rgba(255, 255, 255, 0.34); }
 .note__icon--badge { cursor: default; color: rgba(48, 47, 42, 0.5); }
 .note__icon--badge:hover { background: transparent; }
 .note__icon--done:not(:disabled):hover { color: #fffdf2; background: #5f9472; }
 .note__icon--done:disabled { cursor: default; opacity: 0.4; }
 
-.note__status {
-  min-width: 0;
-  height: 100%;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  overflow: hidden;
-}
-
-.note__chip {
-  height: 18px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  color: rgba(58, 55, 47, 0.66);
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.note__chip i { width: 7px; height: 7px; border-radius: 50%; background: #998555; }
-.note__chip[data-category="work"] i { background: #507aa8; }
-.note__chip[data-category="study"] i { background: #8a68a1; }
-.note__chip[data-category="life"] i { background: #b57d32; }
-.note__chip[data-category="health"] i { background: #4e8a68; }
-.note__chip[data-overdue="true"],
-.note__chip--high { color: #a64439; }
-
-.note[data-compact="true"] .note__chip[data-category] { font-size: 0; }
+.note__spacer { min-width: 0; flex: 1; }
 
 /* ---- body ---- */
 
@@ -431,10 +365,6 @@ select {
 .note-menu__swatches button[data-color="lilac"] { --swatch: #cdb4d8; }
 .note-menu__swatches button[data-selected="true"] { border-color: #3c3c35; }
 
-.note-menu__segmented { display: flex; flex-wrap: wrap; gap: 4px; }
-.note-menu__segmented button,
-.note-menu__chips button,
-.note-menu__row button,
 .note-menu__actions button {
   min-height: 25px;
   display: inline-flex;
@@ -448,39 +378,6 @@ select {
   font-size: 11px;
   cursor: pointer;
 }
-.note-menu__segmented button { flex: 1 1 auto; justify-content: center; }
-.note-menu__segmented button[data-selected="true"],
-.note-menu__chips button[data-selected="true"] { border-color: rgba(54, 54, 47, 0.45); color: #2f2f29; background: rgba(255, 255, 255, 0.55); }
-.note-menu button:disabled { opacity: 0.4; cursor: default; }
-
-.note-menu__switch { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; cursor: pointer; }
-.note-menu__todo { display: flex; flex-direction: column; gap: 6px; }
-.note-menu__todo input[type="datetime-local"] {
-  min-height: 25px;
-  padding: 0 6px;
-  border: 1px solid rgba(54, 54, 47, 0.14);
-  border-radius: 6px;
-  color: #36362f;
-  background: rgba(255, 255, 255, 0.4);
-  font-size: 11px;
-}
-.note-menu__chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(60px, 1fr)); gap: 4px; }
-.note-menu__chips button i { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: #998555; }
-.note-menu__chips button[data-category="work"] i { background: #507aa8; }
-.note-menu__chips button[data-category="study"] i { background: #8a68a1; }
-.note-menu__chips button[data-category="life"] i { background: #b57d32; }
-.note-menu__chips button[data-category="health"] i { background: #4e8a68; }
-.note-menu__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.note-menu__row label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
-.note-menu__row select {
-  min-height: 25px;
-  border: 1px solid rgba(54, 54, 47, 0.14);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.4);
-  font-size: 11px;
-}
-.note-menu__row input[type="range"] { min-width: 0; flex: 1; accent-color: #8a6f3a; }
-.note-menu__value { min-width: 18px; text-align: center; font-variant-numeric: tabular-nums; }
 .note-menu__actions { flex-direction: row !important; flex-wrap: wrap; }
 .note-menu__danger { border-color: rgba(166, 68, 57, 0.5) !important; color: #a64439 !important; }
 

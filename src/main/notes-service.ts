@@ -8,21 +8,17 @@ import type {
   NoteLayer,
   NotePatch,
   NoteRecord,
-  NoteTodo,
-  PaperStyle,
 } from '../shared/types.ts'
 import {
   NOTE_LIMIT,
   applyNotePatch,
   createNoteId,
   createNoteRecord,
-  createTodo,
   emptyDoc,
   normalizeBounds,
   normalizeDoc,
   normalizeNoteList,
   normalizeSettings,
-  setTodoDone,
   summarizeDoc,
 } from '../shared/note-model.ts'
 import {
@@ -52,9 +48,7 @@ export interface CreateNoteParams {
   bounds: NoteBounds
   text?: string
   color?: NoteColor
-  paperStyle?: PaperStyle
   layer?: NoteLayer
-  todo?: NoteTodo
 }
 
 export class NotesService extends EventEmitter {
@@ -152,9 +146,7 @@ export class NotesService extends EventEmitter {
       now,
       index: this.nextIndex,
       color: params.color,
-      paperStyle: params.paperStyle,
       layer: params.layer ?? this.settingsValue.defaultLayer,
-      todo: params.todo,
     })
     this.nextIndex += 1
     const doc = emptyDoc(params.text ?? '')
@@ -196,10 +188,7 @@ export class NotesService extends EventEmitter {
   patch(id: string, patch: NotePatch): NoteRecord | null {
     const note = this.notes.get(id)
     if (!note) return null
-    let next = applyNotePatch(note, patch, this.now())
-    // A note that stops being a to-do also leaves the archive.
-    if (patch.todo === null && note.archivedAt !== undefined) next = { ...next, visible: true }
-    return this.commit(next)
+    return this.commit(applyNotePatch(note, patch, this.now()))
   }
 
   setBounds(id: string, bounds: NoteBounds): NoteRecord | null {
@@ -225,35 +214,19 @@ export class NotesService extends EventEmitter {
     this.scheduleIndexSave()
   }
 
-  /**
-   * First half of finishing a note: mark it done. archive() hides it after the tear animation.
-   * A plain note becomes a finished to-do so it can be found in the archive and restored.
-   */
-  markDone(id: string): NoteRecord | null {
-    const note = this.notes.get(id)
-    if (!note || note.todo?.done) return note ?? null
-    const todo = note.todo ?? createTodo({ text: note.title })
-    return this.commit({ ...note, todo: setTodoDone(todo, true, this.now()), updatedAt: this.now() })
-  }
-
+  /** A finished note is torn off: hidden and kept in the archive until restored or deleted. */
   archive(id: string): NoteRecord | null {
     const note = this.notes.get(id)
-    if (!note?.todo?.done) return note ?? null
+    if (!note || note.archivedAt !== undefined) return note ?? null
     return this.commit({ ...note, visible: false, archivedAt: this.now() })
   }
 
   reopen(id: string): NoteRecord | null {
     const note = this.notes.get(id)
-    if (!note?.todo) return note ?? null
-    const next: NoteRecord = { ...note, todo: setTodoDone(note.todo, false), visible: true, lastActiveAt: this.now(), updatedAt: this.now() }
+    if (note?.archivedAt === undefined) return note ?? null
+    const next: NoteRecord = { ...note, visible: true, lastActiveAt: this.now(), updatedAt: this.now() }
     delete next.archivedAt
     return this.commit(next)
-  }
-
-  markReminded(id: string, dueAt: number): void {
-    const note = this.notes.get(id)
-    if (!note?.todo) return
-    this.commit({ ...note, todo: { ...note.todo, remindedFor: dueAt } }, false)
   }
 
   async remove(id: string): Promise<boolean> {

@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   Archive,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
   Eye,
   EyeOff,
   FolderOpen,
   Image as ImageIcon,
   Layers,
-  ListTodo,
   Pin,
   Plus,
   RefreshCw,
@@ -20,27 +15,10 @@ import {
   StickyNote,
   Trash2,
 } from 'lucide-react'
-import type { ManagerSnapshot, NoteLayer, NoteRecord, TodoCategory, UpdateState } from '@shared/types'
-import {
-  NOTE_COLORS,
-  NOTE_COLOR_LABELS,
-  NOTE_LAYERS,
-  NOTE_LAYER_LABELS,
-  TODO_BUCKET_LABELS,
-  TODO_CATEGORIES,
-  TODO_CATEGORY_LABELS,
-  createDueAt,
-  createTodo,
-  displayTitle,
-  formatDueLabel,
-  getTodoBucket,
-  getWeekRange,
-  summarizeWeek,
-  type TodoBucket,
-} from '@shared/note-model'
+import type { ManagerSnapshot, NoteLayer, NoteRecord, UpdateState } from '@shared/types'
+import { NOTE_LAYERS, NOTE_LAYER_LABELS, displayTitle } from '@shared/note-model'
 
-type Tab = 'notes' | 'todos' | 'week' | 'archive' | 'settings'
-type DueChoice = 'none' | 'today' | 'tomorrow'
+type Tab = 'notes' | 'archive' | 'settings'
 
 const api = window.lavaManager
 
@@ -71,16 +49,6 @@ function useSnapshot(): ManagerSnapshot | null {
   return useSyncExternalStore(snapshotStore.subscribe, snapshotStore.get)
 }
 
-/** Current time, refreshed every minute so due labels and buckets move on. */
-function useNow(): number {
-  const [now, setNow] = useState(Date.now)
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 60_000)
-    return () => window.clearInterval(timer)
-  }, [])
-  return now
-}
-
 function LayerBadge({ layer }: { layer: NoteLayer }) {
   if (layer === 'normal') return null
   return (
@@ -92,14 +60,12 @@ function LayerBadge({ layer }: { layer: NoteLayer }) {
 }
 
 function NoteCard({ note }: { note: NoteRecord }) {
-  const [confirm, setConfirm] = useState(false)
   return (
     <article className="card" data-color={note.color} data-hidden={!note.visible}>
       <div className="card__paper" onDoubleClick={() => void api.focus(note.id)} title="双击打开">
         <strong>{displayTitle(note)}</strong>
         <p>{note.preview.split('\n').slice(1).join(' ') || (note.imageCount > 0 ? '' : '（还没有内容）')}</p>
         <div className="card__badges">
-          {note.todo && <span className="badge"><ListTodo size={11} />{note.todo.done ? '已完成' : '待办'}</span>}
           {note.imageCount > 0 && <span className="badge"><ImageIcon size={11} />{note.imageCount}</span>}
           <LayerBadge layer={note.layer} />
         </div>
@@ -110,11 +76,7 @@ function NoteCard({ note }: { note: NoteRecord }) {
           {note.visible ? '收起' : '显示'}
         </button>
         <button type="button" title="打开并定位" onClick={() => void api.focus(note.id)}>打开</button>
-        {confirm ? (
-          <button type="button" className="danger" onClick={() => void api.remove(note.id)}>确认删除</button>
-        ) : (
-          <button type="button" title="删除" onClick={() => setConfirm(true)}><Trash2 size={14} /></button>
-        )}
+        <button type="button" title="删除" onClick={() => void api.remove(note.id)}><Trash2 size={14} /></button>
       </footer>
     </article>
   )
@@ -147,151 +109,15 @@ function NotesTab({ notes }: { notes: NoteRecord[] }) {
   )
 }
 
-function TodosTab({ notes }: { notes: NoteRecord[] }) {
-  const [draft, setDraft] = useState('')
-  const [due, setDue] = useState<DueChoice>('none')
-  const [important, setImportant] = useState(false)
-  const [color, setColor] = useState<NoteRecord['color']>('butter')
-  const now = useNow()
-  const open = notes.filter((note) => note.todo && !note.todo.done && note.archivedAt === undefined)
-  const groups = (['overdue', 'today', 'upcoming', 'later', 'undated'] as const).map((bucket) => ({
-    bucket,
-    items: open
-      .filter((note) => getTodoBucket(note.todo!, now) === bucket)
-      .sort((a, b) => (a.todo!.dueAt ?? Number.MAX_SAFE_INTEGER) - (b.todo!.dueAt ?? Number.MAX_SAFE_INTEGER)),
-  }))
-
-  const add = async () => {
-    const text = draft.trim()
-    if (!text) return
-    await api.create({
-      text,
-      color,
-      focus: false,
-      todo: createTodo({
-        text,
-        dueAt: due === 'none' ? undefined : createDueAt(due),
-        priority: important ? 'high' : 'normal',
-      }),
-    })
-    setDraft('')
-    setImportant(false)
-  }
-
-  return (
-    <section className="panel">
-      <div className="composer">
-        <textarea
-          value={draft}
-          placeholder="现在最想完成哪一件事？Ctrl + Enter 贴到桌面"
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void add()
-          }}
-        />
-        <div className="composer__options">
-          <div className="segmented">
-            {(['none', 'today', 'tomorrow'] as const).map((choice) => (
-              <button key={choice} type="button" data-selected={due === choice} onClick={() => setDue(choice)}>
-                {choice === 'none' ? '无日期' : choice === 'today' ? '今晚 21:00' : '明晚 21:00'}
-              </button>
-            ))}
-          </div>
-          <div className="swatches">
-            {NOTE_COLORS.map((item) => (
-              <button key={item} type="button" data-color={item} data-selected={item === color} title={NOTE_COLOR_LABELS[item]} onClick={() => setColor(item)} />
-            ))}
-          </div>
-          <label className="check"><input type="checkbox" checked={important} onChange={(event) => setImportant(event.target.checked)} />重要</label>
-          <button type="button" className="primary" disabled={!draft.trim()} onClick={() => void add()}><Plus size={15} />贴到桌面</button>
-        </div>
-      </div>
-      {open.length === 0 && <p className="empty">没有进行中的待办。任何便签都可以在 ⋯ 菜单里“设为待办”。</p>}
-      {groups.filter((group) => group.items.length > 0).map((group) => (
-        <div key={group.bucket} className="todo-group" data-bucket={group.bucket}>
-          <h3>{TODO_BUCKET_LABELS[group.bucket as Exclude<TodoBucket, 'done'>]}<span>{group.items.length}</span></h3>
-          {group.items.map((note) => (
-            <div key={note.id} className="todo-row" data-color={note.color}>
-              <button type="button" className="todo-row__check" title="完成并撕下" onClick={() => void api.complete(note.id)}><Check size={14} /></button>
-              <div className="todo-row__main">
-                <strong>{displayTitle(note)}</strong>
-                <span>
-                  {note.todo!.dueAt !== undefined && <><Clock3 size={11} />{formatDueLabel(note.todo!.dueAt, now)}</>}
-                  {note.todo!.priority === 'high' && <b>重要</b>}
-                  {!note.visible && <em>已收起</em>}
-                </span>
-              </div>
-              <select
-                value={note.todo!.category}
-                aria-label="分类"
-                onChange={(event) => void api.patch(note.id, { todo: { ...note.todo!, category: event.target.value as TodoCategory } })}
-              >
-                {TODO_CATEGORIES.map((category) => <option key={category} value={category}>{TODO_CATEGORY_LABELS[category]}</option>)}
-              </select>
-              <button type="button" onClick={() => void api.focus(note.id)}>打开</button>
-            </div>
-          ))}
-        </div>
-      ))}
-    </section>
-  )
-}
-
-function WeekTab({ notes }: { notes: NoteRecord[] }) {
-  const [offset, setOffset] = useState(0)
-  const now = useNow()
-  const summary = summarizeWeek(notes, now, offset)
-  const range = getWeekRange(now, offset)
-  const max = Math.max(1, ...summary.dayCounts)
-  const label = (value: number) => new Date(value).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
-  return (
-    <section className="panel">
-      <div className="week-nav">
-        <button type="button" disabled={offset <= -52} onClick={() => setOffset(offset - 1)}><ChevronLeft size={16} /></button>
-        <strong>{offset === 0 ? '本周' : `${-offset} 周前`}</strong>
-        <span>{label(range.start)} – {label(range.end)}</span>
-        <button type="button" disabled={offset >= 0} onClick={() => setOffset(offset + 1)}><ChevronRight size={16} /></button>
-      </div>
-      <p className="headline">{summary.headline}</p>
-      <div className="stats">
-        <div><strong>{summary.completed.length}</strong><span>完成</span></div>
-        <div><strong>{summary.completionRate}%</strong><span>收尾率</span></div>
-        <div><strong>{summary.activeDays}</strong><span>活跃天</span></div>
-        <div><strong>{summary.unfinished.length}</strong><span>未收尾</span></div>
-      </div>
-      <div className="bars" aria-label="每天完成数">
-        {summary.dayCounts.map((count, index) => (
-          <div key={index} className="bars__day">
-            <div className="bars__track"><div className="bars__fill" style={{ height: `${(count / max) * 100}%` }} /></div>
-            <span>{['一', '二', '三', '四', '五', '六', '日'][index]}</span>
-            <em>{count}</em>
-          </div>
-        ))}
-      </div>
-      {summary.unfinished.length > 0 && (
-        <div className="todo-group">
-          <h3>还没收尾<span>{summary.unfinished.length}</span></h3>
-          {summary.unfinished.map((note) => (
-            <div key={note.id} className="todo-row" data-color={note.color}>
-              <div className="todo-row__main"><strong>{displayTitle(note)}</strong></div>
-              <button type="button" onClick={() => void api.focus(note.id)}>打开</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
 function ArchiveTab({ notes }: { notes: NoteRecord[] }) {
   const archived = notes
     .filter((note) => note.archivedAt !== undefined)
-    .sort((a, b) => (b.todo?.completedAt ?? 0) - (a.todo?.completedAt ?? 0))
+    .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
   const [confirmClear, setConfirmClear] = useState(false)
   return (
     <section className="panel">
       <div className="panel__toolbar">
-        <p className="hint">完成并撕下的待办会留在这里，统计和周复盘仍然算它们。</p>
+        <p className="hint">点 ✓ 撕下的便签会留在这里，可以重新贴回。</p>
         {archived.length > 0 && (confirmClear ? (
           <button type="button" className="danger" onClick={() => void api.clearArchived().then(() => setConfirmClear(false))}>确认清空 {archived.length} 张</button>
         ) : (
@@ -300,10 +126,10 @@ function ArchiveTab({ notes }: { notes: NoteRecord[] }) {
       </div>
       {archived.length === 0 && <p className="empty">还没有撕下的便签。</p>}
       {archived.map((note) => (
-        <div key={note.id} className="todo-row" data-color={note.color} data-done>
-          <div className="todo-row__main">
+        <div key={note.id} className="archive-row" data-color={note.color}>
+          <div className="archive-row__main">
             <strong>{displayTitle(note)}</strong>
-            <span>{note.todo?.completedAt ? `完成于 ${new Date(note.todo.completedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
+            <span>{note.archivedAt ? `撕下于 ${new Date(note.archivedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
           </div>
           <button type="button" onClick={() => void api.reopen(note.id)}><RotateCcw size={14} />重新贴回</button>
           <button type="button" title="永久删除" onClick={() => void api.remove(note.id)}><Trash2 size={14} /></button>
@@ -360,8 +186,6 @@ function SettingsTab({ snapshot }: { snapshot: ManagerSnapshot }) {
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
   { id: 'notes', label: '全部便签', icon: <StickyNote size={15} /> },
-  { id: 'todos', label: '待办', icon: <ListTodo size={15} /> },
-  { id: 'week', label: '周复盘', icon: <Clock3 size={15} /> },
   { id: 'archive', label: '已撕下', icon: <Archive size={15} /> },
   { id: 'settings', label: '设置', icon: <Settings size={15} /> },
 ]
@@ -373,7 +197,6 @@ export function ManagerApp() {
   const notes = snapshot.notes
   const active = notes.filter((note) => note.archivedAt === undefined)
   const visible = active.filter((note) => note.visible).length
-  const todos = active.filter((note) => note.todo && !note.todo.done).length
   return (
     <div className="manager">
       <aside className="sidebar">
@@ -382,7 +205,6 @@ export function ManagerApp() {
           {TABS.map((item) => (
             <button key={item.id} type="button" data-active={tab === item.id} onClick={() => setTab(item.id)}>
               {item.icon}{item.label}
-              {item.id === 'todos' && todos > 0 && <em>{todos}</em>}
             </button>
           ))}
         </nav>
@@ -394,8 +216,6 @@ export function ManagerApp() {
       </aside>
       <main>
         {tab === 'notes' && <NotesTab notes={notes} />}
-        {tab === 'todos' && <TodosTab notes={notes} />}
-        {tab === 'week' && <WeekTab notes={notes} />}
         {tab === 'archive' && <ArchiveTab notes={notes} />}
         {tab === 'settings' && <SettingsTab snapshot={snapshot} />}
       </main>

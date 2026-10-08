@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { NotesService } from '../src/main/notes-service.ts'
-import { ROTATION_SEQUENCE, createTodo } from '../src/shared/note-model.ts'
+import { ROTATION_SEQUENCE } from '../src/shared/note-model.ts'
 
 async function tempDir(t) {
   const dir = await mkdtemp(join(tmpdir(), 'lavanotes-service-'))
@@ -66,38 +66,20 @@ test('oversized bodies are refused instead of being truncated', async (t) => {
   assert.ok(errors.some((scope) => scope.startsWith('content-too-large')))
 })
 
-test('finishing a to-do tears it off into the archive and it can be restored', async (t) => {
+test('a finished note is torn off into the archive and can be put back', async (t) => {
   const dir = await tempDir(t)
   const service = new NotesService(dir)
   await service.load()
-  const note = service.create({ bounds, text: '交周报', todo: createTodo({ text: '交周报' }) })
-  service.markDone(note.id)
-  assert.equal(service.get(note.id).todo.done, true)
-  assert.equal(service.get(note.id).visible, true)
-  service.archive(note.id)
-  assert.equal(service.get(note.id).visible, false)
-  assert.ok(service.get(note.id).archivedAt)
-  assert.equal(service.setVisible(note.id, true).visible, false, 'archived notes stay hidden until reopened')
+  const note = service.create({ bounds, text: '交周报' })
+  const archived = service.archive(note.id)
+  assert.equal(archived.visible, false)
+  assert.ok(archived.archivedAt)
+  assert.equal(service.archive(note.id).archivedAt, archived.archivedAt, 'archiving twice keeps the first time')
+  assert.equal(service.setVisible(note.id, true).visible, false, 'archived notes stay hidden until put back')
   service.reopen(note.id)
   assert.equal(service.get(note.id).visible, true)
-  assert.equal(service.get(note.id).todo.done, false)
   assert.equal(service.get(note.id).archivedAt, undefined)
-})
-
-test('finishing a plain note makes it a finished to-do that can be restored', async (t) => {
-  const dir = await tempDir(t)
-  const service = new NotesService(dir)
-  await service.load()
-  const note = service.create({ bounds, text: '买菜' })
-  const done = service.markDone(note.id)
-  assert.equal(done.todo.done, true)
-  assert.equal(done.todo.category, 'life')
-  service.archive(note.id)
-  assert.ok(service.get(note.id).archivedAt)
-  assert.equal(service.get(note.id).visible, false)
-  service.reopen(note.id)
-  assert.equal(service.get(note.id).visible, true)
-  assert.equal(service.get(note.id).todo.done, false)
+  assert.equal(service.reopen(note.id).visible, true, 'putting back a note that is not archived changes nothing')
 })
 
 test('new notes take the tilt sequence in turn, also after a restart', async (t) => {
@@ -119,22 +101,20 @@ test('new notes take the tilt sequence in turn, also after a restart', async (t)
   )
 })
 
-test('unfinished notes are not archived and clearing the archive deletes files', async (t) => {
+test('clearing the archive deletes only torn-off notes and their files', async (t) => {
   const dir = await tempDir(t)
   const service = new NotesService(dir)
   await service.load()
-  const plain = service.create({ bounds, text: 'plain' })
-  assert.equal(service.archive(plain.id).archivedAt, undefined)
-  const todo = service.create({ bounds, text: 'todo', todo: createTodo() })
-  service.markDone(todo.id)
-  service.archive(todo.id)
+  const kept = service.create({ bounds, text: 'kept' })
+  const torn = service.create({ bounds, text: 'torn' })
+  service.archive(torn.id)
   await service.flush()
-  await stat(join(dir, 'notes', `${todo.id}.json`))
+  await stat(join(dir, 'notes', `${torn.id}.json`))
   assert.equal(await service.clearArchived(), 1)
   await service.flush()
-  await assert.rejects(stat(join(dir, 'notes', `${todo.id}.json`)))
+  await assert.rejects(stat(join(dir, 'notes', `${torn.id}.json`)))
   const index = JSON.parse(await readFile(join(dir, 'notes-index.json'), 'utf8'))
-  assert.deepEqual(index.notes.map((item) => item.id), [plain.id])
+  assert.deepEqual(index.notes.map((item) => item.id), [kept.id])
 })
 
 test('change events tell windows what to refresh, bounds updates stay silent', async (t) => {

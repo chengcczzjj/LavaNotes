@@ -1,13 +1,7 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { AppSettings, CreateNoteOptions, NoteInit, NotePatch } from '@shared/types'
-import {
-  FONT_FAMILIES,
-  NOTE_COLORS,
-  NOTE_LAYERS,
-  PAPER_STYLES,
-  normalizeTodo,
-} from '@shared/note-model'
+import { FONT_FAMILIES, NOTE_COLORS, NOTE_LAYERS } from '@shared/note-model'
 import { getWindowMargin } from '@shared/geometry'
 import type { NotesService } from './notes-service'
 import type { NoteWindowManager } from './note-windows'
@@ -19,6 +13,8 @@ export interface IpcContext {
   isManager: (webContentsId: number) => boolean
   createNote: (options: CreateNoteOptions) => Promise<ReturnType<NotesService['create']> | null>
   completeNote: (id: string) => void
+  /** The note window finished its tear animation. */
+  finishTear: (id: string) => void
   setSettings: (patch: Partial<AppSettings>) => AppSettings
   openManager: () => void
   managerSnapshot: () => unknown
@@ -37,16 +33,10 @@ export function sanitizePatch(value: unknown): NotePatch {
   if (!isRecord(value)) return {}
   const patch: NotePatch = {}
   if (NOTE_COLORS.includes(value.color as never)) patch.color = value.color as NotePatch['color']
-  if (PAPER_STYLES.includes(value.paperStyle as never)) patch.paperStyle = value.paperStyle as NotePatch['paperStyle']
   if (NOTE_LAYERS.includes(value.layer as never)) patch.layer = value.layer as NotePatch['layer']
   if (FONT_FAMILIES.includes(value.fontFamily as never)) patch.fontFamily = value.fontFamily as NotePatch['fontFamily']
   if (typeof value.rotation === 'number' && Number.isFinite(value.rotation)) patch.rotation = value.rotation
   if (typeof value.fontSize === 'number' && Number.isFinite(value.fontSize)) patch.fontSize = value.fontSize
-  if (value.todo === null) patch.todo = null
-  else if (value.todo !== undefined) {
-    const todo = normalizeTodo(value.todo)
-    if (todo) patch.todo = todo
-  }
   return patch
 }
 
@@ -56,9 +46,7 @@ function sanitizeCreate(value: unknown): CreateNoteOptions {
   return {
     text: typeof value.text === 'string' ? value.text.slice(0, 20_000) : undefined,
     color: patch.color,
-    paperStyle: patch.paperStyle,
     layer: patch.layer,
-    todo: patch.todo ?? undefined,
     focus: value.focus === true,
   }
 }
@@ -87,7 +75,6 @@ export function registerIpc(context: IpcContext): void {
       doc: await service.readContent(id),
       margin: getWindowMargin(note.rotation),
       platform: process.platform,
-      desktopPinSupported: windows.desktopPinSupported,
       focusEditor: windows.consumeFocusEditor(id),
     }
   })
@@ -131,11 +118,6 @@ export function registerIpc(context: IpcContext): void {
     if (id) void context.createNote({ nearNoteId: id, focus: true, layer: service.get(id)?.layer })
   })
 
-  ipcMain.on(IPC.NOTE_HIDE, (event) => {
-    const id = noteOf(event)
-    if (id) service.setVisible(id, false)
-  })
-
   ipcMain.on(IPC.NOTE_DELETE, (event) => {
     const id = noteOf(event)
     if (id) void service.remove(id)
@@ -148,7 +130,7 @@ export function registerIpc(context: IpcContext): void {
 
   ipcMain.on(IPC.NOTE_TEAR_FINISHED, (event) => {
     const id = noteOf(event)
-    if (id) service.archive(id)
+    if (id) context.finishTear(id)
   })
 
   ipcMain.on(IPC.NOTE_ACTIVATED, (event) => {
@@ -189,11 +171,6 @@ export function registerIpc(context: IpcContext): void {
     return context.createNote(sanitizeCreate(options))
   })
 
-  ipcMain.handle(IPC.MANAGER_PATCH, (event, id: unknown, patch: unknown) => {
-    assertManager(event)
-    return service.patch(requireId(id), sanitizePatch(patch))
-  })
-
   ipcMain.handle(IPC.MANAGER_SET_VISIBLE, (event, id: unknown, visible: unknown) => {
     assertManager(event)
     service.setVisible(requireId(id), visible === true)
@@ -204,11 +181,6 @@ export function registerIpc(context: IpcContext): void {
     const noteId = requireId(id)
     service.setVisible(noteId, true)
     windows.focus(noteId)
-  })
-
-  ipcMain.handle(IPC.MANAGER_COMPLETE, (event, id: unknown) => {
-    assertManager(event)
-    context.completeNote(requireId(id))
   })
 
   ipcMain.handle(IPC.MANAGER_REOPEN, (event, id: unknown) => {

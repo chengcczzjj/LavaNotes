@@ -10,7 +10,6 @@ import { NoteWindowManager } from './note-windows'
 import { registerIpc } from './ipc'
 import { getManagerWindow, isManagerWebContents, openManagerWindow } from './manager-window'
 import { createTray, destroyTray, refreshTrayMenu, type TrayActions } from './tray'
-import { startReminders } from './reminders'
 import { checkForUpdates, getUpdateState, installUpdate, onUpdateState, startAutoUpdates } from './updater'
 import { log } from './log'
 
@@ -31,7 +30,7 @@ if (!app.requestSingleInstanceLock()) {
 const WELCOME_TEXT = [
   '欢迎使用 LavaNotes',
   '拖动顶部纸条或胶带可以移动便签，拖右下角折角调整大小。',
-  '点右上角 ✓ 完成并撕下；点 ⋯ 可以换纸色、设为待办，或者钉在桌面。',
+  '写完的事点右上角 ✓ 撕下；点 ⋯ 可以换纸色、打开便签管理或删除。',
   '图片可以直接粘贴、拖进来；也可以插入简单表格。',
 ].join('\n')
 
@@ -62,16 +61,14 @@ async function main(): Promise<void> {
       : screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
     const onDisplay = service.list()
       .filter((note) => note.visible && screen.getDisplayMatching(note.bounds).id === display.id)
-      .length
+      .map((note) => note.bounds)
     const bounds = placeNewNote(size, display.workArea, onDisplay)
     try {
       const note = service.create({
         bounds,
         text: options.text,
         color: options.color,
-        paperStyle: options.paperStyle,
         layer: options.layer,
-        todo: options.todo,
       })
       await windows.open(note.id, { focus: options.focus !== false })
       return note
@@ -81,18 +78,22 @@ async function main(): Promise<void> {
     }
   }
 
+  // ✓ means done: play the tear animation, then archive the note.
+  const tearing = new Set<string>()
+  const finishTear = (id: string): void => {
+    if (!tearing.delete(id)) return
+    service.archive(id)
+  }
   const completeNote = (id: string): void => {
-    const note = service.markDone(id)
-    if (!note?.todo?.done) return
+    const note = service.get(id)
+    if (!note || note.archivedAt !== undefined || tearing.has(id)) return
     if (!windows.playTear(id)) {
       service.archive(id)
       return
     }
-    // The window archives itself after the animation; this covers a window that never answers.
-    setTimeout(() => {
-      const latest = service.get(id)
-      if (latest?.todo?.done && latest.archivedAt === undefined) service.archive(id)
-    }, 2500)
+    tearing.add(id)
+    // The window reports the end of the animation; this covers a window that never answers.
+    setTimeout(() => finishTear(id), 2500)
   }
 
   const applyLaunchAtLogin = (enabled: boolean): void => {
@@ -146,6 +147,7 @@ async function main(): Promise<void> {
     isManager: isManagerWebContents,
     createNote,
     completeNote,
+    finishTear,
     setSettings,
     openManager,
     managerSnapshot: snapshot,
@@ -180,18 +182,13 @@ async function main(): Promise<void> {
 
   if (loaded.source === 'empty' && !loaded.quarantined && service.list().length === 0) {
     service.create({
-      bounds: placeNewNote({ width: NOTE_DEFAULT_WIDTH, height: NOTE_DEFAULT_HEIGHT }, screen.getPrimaryDisplay().workArea, 0),
+      bounds: placeNewNote({ width: NOTE_DEFAULT_WIDTH, height: NOTE_DEFAULT_HEIGHT }, screen.getPrimaryDisplay().workArea, []),
       text: WELCOME_TEXT,
       color: 'butter',
-      paperStyle: 'tape',
     })
   }
 
   await windows.start()
-  startReminders(service, (id) => {
-    service.setVisible(id, true)
-    windows.focus(id)
-  })
   startAutoUpdates(log)
   setTimeout(() => {
     void service.collectGarbage().then((removed) => {

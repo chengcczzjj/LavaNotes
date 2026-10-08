@@ -1,33 +1,31 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  ROTATION_LIMIT,
+  ROTATION_SEQUENCE,
   applyNotePatch,
-  createDueAt,
   createNoteId,
   createNoteRecord,
-  createTodo,
   displayTitle,
   emptyDoc,
-  getDueReminders,
-  getTodoBucket,
-  inferTodoCategory,
   normalizeDoc,
   normalizeNoteList,
   normalizeNoteRecord,
   normalizeSettings,
-  setTodoDone,
   summarizeDoc,
-  summarizeWeek,
 } from '../src/shared/note-model.ts'
 
 const bounds = { x: 100, y: 120, width: 240, height: 220 }
 
-test('a new note is a plain note: no to-do until the user asks for one', () => {
+test('a new note is visible, in an ordinary window, with a clear tilt from the sequence', () => {
   const note = createNoteRecord({ id: 'n-test-001', bounds, now: 1000 })
-  assert.equal(note.todo, undefined)
   assert.equal(note.visible, true)
   assert.equal(note.layer, 'normal')
-  assert.ok(Math.abs(note.rotation) <= 4.5)
+  assert.equal(note.rotation, ROTATION_SEQUENCE[0])
+  for (const [index, rotation] of ROTATION_SEQUENCE.entries()) {
+    assert.ok(Math.abs(rotation) >= 1.5 && Math.abs(rotation) <= ROTATION_LIMIT, `tilt ${rotation}`)
+    if (index > 0) assert.equal(Math.sign(rotation), -Math.sign(ROTATION_SEQUENCE[index - 1]), 'tilts alternate')
+  }
 })
 
 test('note ids are url-safe and accepted by the record validator', () => {
@@ -54,8 +52,24 @@ test('stored records are clamped: size, tilt, font size and enums', () => {
 })
 
 test('archived notes are never visible even if the file says so', () => {
-  const note = normalizeNoteRecord({ id: 'n-arch-001', bounds, visible: true, archivedAt: 5, todo: { done: true } })
+  const note = normalizeNoteRecord({ id: 'n-arch-001', bounds, visible: true, archivedAt: 5 })
   assert.equal(note.visible, false)
+})
+
+test('to-do fields and paper styles from older versions are dropped on load', () => {
+  const note = normalizeNoteRecord({
+    id: 'n-old-0001',
+    bounds,
+    paperStyle: 'pin',
+    todo: { done: false, dueAt: 5, category: 'work', priority: 'high', remind: true },
+  })
+  assert.equal('todo' in note, false)
+  assert.equal('paperStyle' in note, false)
+  assert.equal(note.visible, true)
+  const patched = applyNotePatch(note, { color: 'mint', todo: { done: true }, paperStyle: 'plain' }, 2000)
+  assert.equal(patched.color, 'mint')
+  assert.equal('todo' in patched, false)
+  assert.equal('paperStyle' in patched, false)
 })
 
 test('note lists drop duplicates and invalid rows', () => {
@@ -67,32 +81,6 @@ test('note lists drop duplicates and invalid rows', () => {
     { id: 'n-ok-00002', bounds },
   ])
   assert.deepEqual(notes.map((note) => note.id), ['n-dup-0001', 'n-ok-00002'])
-})
-
-test('turning a note into a to-do and back keeps the content model separate', () => {
-  const note = createNoteRecord({ id: 'n-todo-001', bounds, now: 1000 })
-  const todo = applyNotePatch(note, { todo: createTodo({ text: '明天交周报', dueAt: 5000 }) }, 2000)
-  assert.equal(todo.todo.category, 'work')
-  assert.equal(todo.todo.done, false)
-  const plain = applyNotePatch({ ...todo, archivedAt: 3000 }, { todo: null }, 4000)
-  assert.equal(plain.todo, undefined)
-  assert.equal(plain.archivedAt, undefined)
-})
-
-test('changing a due time re-arms its reminder', () => {
-  const note = createNoteRecord({ id: 'n-remind1', bounds, todo: { ...createTodo({ dueAt: 1000 }), remindedFor: 1000 } })
-  const moved = applyNotePatch(note, { todo: { ...note.todo, dueAt: 9000 } })
-  assert.equal(moved.todo.remindedFor, undefined)
-  assert.deepEqual(getDueReminders([moved], 10_000).map((item) => item.id), ['n-remind1'])
-  assert.deepEqual(getDueReminders([note], 10_000), [])
-})
-
-test('category inference keeps the useful keyword rules', () => {
-  assert.equal(inferTodoCategory('下午三点项目会议'), 'work')
-  assert.equal(inferTodoCategory('背单词'), 'study')
-  assert.equal(inferTodoCategory('晚上跑步'), 'health')
-  assert.equal(inferTodoCategory('买菜'), 'life')
-  assert.equal(inferTodoCategory('随便写点'), 'other')
 })
 
 test('doc summary: title, preview, images and tables come from the body only', () => {
@@ -133,26 +121,6 @@ test('docs from disk are normalized and plain text becomes paragraphs', () => {
   assert.deepEqual(normalizeDoc(null), emptyDoc())
   assert.equal(emptyDoc('a\nb').content.length, 2)
   assert.equal(normalizeDoc({ type: 'doc', content: [1, { type: 'paragraph' }] }).content.length, 1)
-})
-
-test('to-do buckets and the weekly review only count to-do notes', () => {
-  const now = new Date(2026, 9, 7, 12).getTime()
-  const overdue = createTodo({ dueAt: now - 60_000 })
-  const today = createTodo({ dueAt: createDueAt('today', now) })
-  const tomorrow = createTodo({ dueAt: createDueAt('tomorrow', now) })
-  assert.equal(getTodoBucket(overdue, now), 'overdue')
-  assert.equal(getTodoBucket(today, now), 'today')
-  assert.equal(getTodoBucket(tomorrow, now), 'upcoming')
-  assert.equal(getTodoBucket(createTodo(), now), 'undated')
-
-  const done = createNoteRecord({ id: 'n-week-001', bounds, now, todo: setTodoDone(createTodo(), true, now) })
-  const open = createNoteRecord({ id: 'n-week-002', bounds, now, todo: createTodo() })
-  const plain = createNoteRecord({ id: 'n-week-003', bounds, now })
-  const summary = summarizeWeek([done, open, plain], now)
-  assert.equal(summary.completed.length, 1)
-  assert.equal(summary.unfinished.length, 1)
-  assert.equal(summary.plannedCount, 2)
-  assert.equal(summary.completionRate, 50)
 })
 
 test('settings default to launching at login with ordinary windows', () => {
