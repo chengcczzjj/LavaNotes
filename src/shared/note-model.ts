@@ -110,6 +110,11 @@ export function normalizeNoteRecord(value: unknown, now = Date.now()): NoteRecor
   if (!/^[A-Za-z0-9_-]{6,80}$/.test(id)) return null
   const createdAt = readNumber(value.createdAt) ?? now
   const archivedAt = readNumber(value.archivedAt)
+  // A note is either done or given up; a file that says both keeps the earlier outcome.
+  const abandonedRaw = readNumber(value.abandonedAt)
+  const abandonedAt = abandonedRaw !== undefined && (archivedAt === undefined || abandonedRaw < archivedAt) ? abandonedRaw : undefined
+  const torn = abandonedAt === undefined ? archivedAt : undefined
+  const startedAt = readNumber(value.startedAt)
   return {
     id,
     createdAt,
@@ -123,10 +128,12 @@ export function normalizeNoteRecord(value: unknown, now = Date.now()): NoteRecor
     fontSize: clampFontSize(value.fontSize),
     bounds: normalizeBounds(value.bounds, { x: 120, y: 120, width: NOTE_DEFAULT_WIDTH, height: NOTE_DEFAULT_HEIGHT }),
     layer: readEnum(value.layer, NOTE_LAYERS, 'normal'),
-    // Archived notes are never shown, whatever an older file says.
-    visible: archivedAt === undefined && value.visible !== false,
+    // Archived and abandoned notes are never shown, whatever an older file says.
+    visible: torn === undefined && abandonedAt === undefined && value.visible !== false,
     lastActiveAt: readNumber(value.lastActiveAt) ?? createdAt,
-    ...(archivedAt !== undefined ? { archivedAt } : {}),
+    ...(torn !== undefined ? { archivedAt: torn } : {}),
+    ...(abandonedAt !== undefined ? { abandonedAt } : {}),
+    ...(startedAt !== undefined && startedAt > 0 ? { startedAt } : {}),
   }
 }
 
@@ -189,6 +196,9 @@ export function applyNotePatch(note: NoteRecord, patch: NotePatch, now = Date.no
   if (patch.fontFamily !== undefined) next.fontFamily = patch.fontFamily
   if (patch.fontSize !== undefined) next.fontSize = patch.fontSize
   if (patch.layer !== undefined) next.layer = patch.layer
+  // Only a note on the desk can be started; stopping keeps nothing.
+  if (patch.inProgress === true && noteState(note) === 'active') next.startedAt = note.startedAt ?? now
+  if (patch.inProgress === false) delete next.startedAt
   return normalizeNoteRecord(next, now) ?? note
 }
 
@@ -270,6 +280,30 @@ export function summarizeDoc(doc: NoteDoc): DocSummary {
   const title = sanitizeLine(lines[0] ?? '', TITLE_LIMIT)
   const preview = lines.map((line) => sanitizeLine(line, PREVIEW_LIMIT)).join('\n').slice(0, PREVIEW_LIMIT)
   return { title, preview, imageCount, assetFiles: [...assets], tableCount }
+}
+
+/** Whether a note is still on the desk (shown or hidden), done, or given up. */
+export function noteState(note: Pick<NoteRecord, 'archivedAt' | 'abandonedAt'>): 'active' | 'completed' | 'abandoned' {
+  if (note.abandonedAt !== undefined) return 'abandoned'
+  if (note.archivedAt !== undefined) return 'completed'
+  return 'active'
+}
+
+/** A note on the desk that has been marked as being worked on. */
+export function isInProgress(note: Pick<NoteRecord, 'archivedAt' | 'abandonedAt' | 'startedAt'>): boolean {
+  return note.startedAt !== undefined && noteState(note) === 'active'
+}
+
+/**
+ * A checklist item's attributes after a right click on its box: to do ⇄ in
+ * progress, and a checked item goes back to in progress. The start time is
+ * kept when an item is checked, so unchecking returns it to in progress.
+ */
+export function toggleTaskDoing(attrs: Record<string, unknown>, now: number): Record<string, unknown> {
+  const started = readNumber(attrs.startedAt)
+  const startedAt = started !== undefined && started > 0 ? started : null
+  if (attrs.checked === true) return { ...attrs, checked: false, checkedAt: null, startedAt: startedAt ?? now }
+  return { ...attrs, startedAt: startedAt === null ? now : null }
 }
 
 export function displayTitle(note: Pick<NoteRecord, 'title' | 'imageCount'>): string {

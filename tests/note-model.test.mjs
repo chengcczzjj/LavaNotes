@@ -8,11 +8,14 @@ import {
   createNoteRecord,
   displayTitle,
   emptyDoc,
+  isInProgress,
   normalizeDoc,
   normalizeNoteList,
   normalizeNoteRecord,
   normalizeSettings,
+  noteState,
   summarizeDoc,
+  toggleTaskDoing,
 } from '../src/shared/note-model.ts'
 
 const bounds = { x: 100, y: 120, width: 240, height: 220 }
@@ -127,4 +130,52 @@ test('settings default to launching at login with ordinary windows', () => {
   assert.deepEqual(normalizeSettings(undefined), { launchAtLogin: true, defaultLayer: 'normal' })
   assert.equal(normalizeSettings({ defaultLayer: 'desktop' }).defaultLayer, 'desktop')
   assert.equal(normalizeSettings({ defaultLayer: 'x' }).defaultLayer, 'normal')
+})
+
+test('abandoned notes load hidden; a file claiming both outcomes keeps the earlier one', () => {
+  const abandoned = normalizeNoteRecord({ id: 'n-drop-001', bounds, visible: true, abandonedAt: 500 })
+  assert.equal(abandoned.visible, false)
+  assert.equal(abandoned.abandonedAt, 500)
+  const both = normalizeNoteRecord({ id: 'n-both-001', bounds, archivedAt: 900, abandonedAt: 400 })
+  assert.equal(both.abandonedAt, 400)
+  assert.equal(both.archivedAt, undefined)
+  const tornFirst = normalizeNoteRecord({ id: 'n-both-002', bounds, archivedAt: 300, abandonedAt: 400 })
+  assert.equal(tornFirst.archivedAt, 300)
+  assert.equal(tornFirst.abandonedAt, undefined)
+  assert.equal(noteState(tornFirst), 'completed')
+  assert.equal(noteState(both), 'abandoned')
+  assert.equal(noteState(normalizeNoteRecord({ id: 'n-live-001', bounds })), 'active')
+})
+
+test('a note on the desk can be marked in progress; starting again keeps the first start', () => {
+  const note = createNoteRecord({ id: 'n-doing-001', bounds, now: 1000 })
+  assert.equal(isInProgress(note), false)
+  const started = applyNotePatch(note, { inProgress: true }, 2000)
+  assert.equal(started.startedAt, 2000)
+  assert.equal(isInProgress(started), true)
+  assert.equal(applyNotePatch(started, { inProgress: true }, 3000).startedAt, 2000)
+  const stopped = applyNotePatch(started, { inProgress: false }, 4000)
+  assert.equal(stopped.startedAt, undefined)
+  assert.equal('startedAt' in stopped, false)
+  assert.equal(normalizeNoteRecord({ ...started }).startedAt, 2000, 'the start time is stored')
+})
+
+test('a torn-off note keeps its start time but is no longer in progress, and cannot be started', () => {
+  const note = { ...createNoteRecord({ id: 'n-doing-002', bounds, now: 1000 }), startedAt: 1500 }
+  const torn = normalizeNoteRecord({ ...note, archivedAt: 2000 })
+  assert.equal(torn.startedAt, 1500)
+  assert.equal(isInProgress(torn), false)
+  const fresh = normalizeNoteRecord({ id: 'n-doing-003', bounds, archivedAt: 2000 })
+  assert.equal(applyNotePatch(fresh, { inProgress: true }, 3000).startedAt, undefined)
+})
+
+test('right click on a checklist box: to do and in progress swap, done goes back to in progress', () => {
+  const todo = { checked: false, tid: 'a', createdAt: 100, checkedAt: null, startedAt: null }
+  const doing = toggleTaskDoing(todo, 200)
+  assert.equal(doing.startedAt, 200)
+  assert.equal(doing.tid, 'a', 'other attributes stay')
+  assert.equal(toggleTaskDoing(doing, 300).startedAt, null)
+  const done = { ...doing, checked: true, checkedAt: 400 }
+  assert.deepEqual(toggleTaskDoing(done, 500), { ...done, checked: false, checkedAt: null, startedAt: 200 })
+  assert.equal(toggleTaskDoing({ checked: true, checkedAt: 400 }, 500).startedAt, 500)
 })

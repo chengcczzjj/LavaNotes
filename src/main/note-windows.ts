@@ -1,6 +1,6 @@
 import { BrowserWindow, screen, shell, type BrowserWindowConstructorOptions, type Rectangle } from 'electron'
 import { IPC, type HostOpenRequest } from '@shared/ipc'
-import type { NoteLayer, NoteRecord, ResizeSession } from '@shared/types'
+import type { LeaveKind, NoteLayer, NoteRecord, ResizeSession } from '@shared/types'
 import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, clampNoteSize } from '@shared/note-model'
 import {
   ensurePaperReachable,
@@ -197,10 +197,11 @@ export class NoteWindowManager {
     else void this.open(id, { focus: true })
   }
 
-  playTear(id: string): boolean {
+  /** Play the leaving animation: torn off when done, crumpled when abandoned. */
+  playTear(id: string, kind: LeaveKind = 'tear'): boolean {
     const entry = this.entries.get(id)
     if (!entry || entry.win.isDestroyed()) return false
-    entry.win.webContents.send(IPC.NOTE_PLAY_TEAR)
+    entry.win.webContents.send(IPC.NOTE_PLAY_TEAR, kind)
     return true
   }
 
@@ -504,11 +505,16 @@ export class NoteWindowManager {
 
   // ---- click-through ----
 
+  /**
+   * No `forward`: the cursor is polled here, and on Windows Electron forwards
+   * mouse moves to every forwarding window whose rectangle holds the cursor,
+   * even one hidden behind another note. Overlapping notes then kept setting
+   * their own cursor over the note in front, which flickered.
+   */
   private applyIgnore(entry: Entry, ignore: boolean): void {
     if (!canPassThrough || entry.win.isDestroyed() || entry.ignoring === ignore) return
     entry.ignoring = ignore
-    if (ignore) entry.win.setIgnoreMouseEvents(true, { forward: true })
-    else entry.win.setIgnoreMouseEvents(false)
+    entry.win.setIgnoreMouseEvents(ignore)
   }
 
   private scheduleHitTest(delay: number): void {

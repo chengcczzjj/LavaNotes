@@ -4,7 +4,7 @@ import { join, normalize, resolve, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { resolveAssetRequest } from './assets'
 
-export type RendererPage = 'host' | 'note' | 'manager'
+export type RendererPage = 'host' | 'note' | 'manager' | 'tray'
 
 const APP_SCHEME = 'app'
 const APP_HOST = 'lavanotes'

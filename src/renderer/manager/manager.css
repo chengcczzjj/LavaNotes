@@ -7,6 +7,8 @@
   --accent: #c2552f;
   --accent-ink: #fff8ef;
   --danger: #a64439;
+  /* In progress, the same amber as on the notes. */
+  --doing: #b5621b;
   color-scheme: light;
 }
 
@@ -165,3 +167,21 @@ main { min-width: 0; overflow: auto; padding: 22px 26px; }
 .setting > div:first-child { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .setting > div:first-child span { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
 .setting input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* 便签管理: one list, filtered by state */
+.note-filter button { gap: 6px; }
+.note-filter .count { min-width: 18px; padding: 0 5px; border-radius: 99px; color: var(--muted); background: rgba(74, 62, 40, 0.08); font-size: 11px; font-variant-numeric: tabular-nums; }
+.note-filter button[data-selected="true"] .count { color: var(--ink); background: rgba(74, 62, 40, 0.14); }
+.card[data-state="completed"] .card__paper,
+.card[data-state="abandoned"] .card__paper { opacity: 0.72; filter: saturate(0.75); }
+.card[data-state="abandoned"] .card__paper { border-style: dashed; }
+.badge--state { color: rgba(51, 48, 42, 0.85); background: rgba(255, 255, 255, 0.6); }
+.badge--doing { gap: 5px; color: var(--doing); background: rgba(255, 255, 255, 0.62); font-weight: 600; }
+.badge--doing i { width: 6px; height: 6px; border-radius: 50%; background: var(--doing); animation: badge-breathe 2.6s ease-in-out infinite; }
+@keyframes badge-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.65); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge--doing i { animation: none; }
+}

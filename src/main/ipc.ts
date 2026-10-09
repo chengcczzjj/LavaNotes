@@ -1,10 +1,15 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { AppSettings, CreateNoteOptions, NoteInit, NotePatch } from '@shared/types'
+import { MANAGER_PAGES, type AppSettings, type CreateNoteOptions, type ManagerPage, type NoteInit, type NotePatch } from '@shared/types'
 import { FONT_FAMILIES, NOTE_COLORS, NOTE_LAYERS } from '@shared/note-model'
 import { getWindowMargin } from '@shared/geometry'
+import { PROVIDER_IDS, type AiSettingsPatch, type ProviderId } from '@shared/ai'
+import { sanitizeTranslateRequest, type TranslateResult } from '@shared/translate'
+import type { StatsDataset, StatsGranularity } from '@shared/stats'
+import type { InsightRunResult } from '@shared/insights'
 import type { NotesService } from './notes-service'
 import type { NoteWindowManager } from './note-windows'
+import type { AiService } from './ai/service'
 import { storeImage } from './assets'
 
 export interface IpcContext {
@@ -13,10 +18,14 @@ export interface IpcContext {
   isManager: (webContentsId: number) => boolean
   createNote: (options: CreateNoteOptions) => Promise<ReturnType<NotesService['create']> | null>
   completeNote: (id: string) => void
-  /** The note window finished its tear animation. */
+  abandonNote: (id: string) => void
+  /** The note window finished its tear or crumple animation. */
   finishTear: (id: string) => void
   setSettings: (patch: Partial<AppSettings>) => AppSettings
-  openManager: () => void
+  openManager: (page?: ManagerPage) => void
+  ai: AiService
+  statsDataset: () => Promise<StatsDataset>
+  runInsight: (granularity: StatsGranularity, start: number, signal: AbortSignal) => Promise<InsightRunResult>
   managerSnapshot: () => unknown
   openDataDir: () => Promise<void>
   checkUpdate: () => Promise<void>
@@ -37,6 +46,7 @@ export function sanitizePatch(value: unknown): NotePatch {
   if (FONT_FAMILIES.includes(value.fontFamily as never)) patch.fontFamily = value.fontFamily as NotePatch['fontFamily']
   if (typeof value.rotation === 'number' && Number.isFinite(value.rotation)) patch.rotation = value.rotation
   if (typeof value.fontSize === 'number' && Number.isFinite(value.fontSize)) patch.fontSize = value.fontSize
+  if (typeof value.inProgress === 'boolean') patch.inProgress = value.inProgress
   return patch
 }
 
@@ -49,6 +59,38 @@ function sanitizeCreate(value: unknown): CreateNoteOptions {
     layer: patch.layer,
     focus: value.focus === true,
   }
+}
+
+/** The manager may change the provider, its key/address/model and the translation target; nothing else. */
+export function sanitizeAiPatch(value: unknown): AiSettingsPatch {
+  if (!isRecord(value)) return {}
+  const patch: AiSettingsPatch = {}
+  if (PROVIDER_IDS.includes(value.provider as ProviderId)) patch.provider = value.provider as ProviderId
+  if (typeof value.translateTarget === 'string') patch.translateTarget = value.translateTarget.slice(0, 20)
+  if (isRecord(value.providers)) {
+    const providers: NonNullable<AiSettingsPatch['providers']> = {}
+    for (const id of PROVIDER_IDS) {
+      const change = value.providers[id]
+      if (!isRecord(change)) continue
+      const next: { key?: string; baseUrl?: string; model?: string } = {}
+      // A ChatGPT sign-in is only written by the main process.
+      if (typeof change.key === 'string' && id !== 'chatgpt') next.key = change.key.slice(0, 4000)
+      if (typeof change.baseUrl === 'string') next.baseUrl = /^(https?:\/\/\S*)?$/i.test(change.baseUrl.trim()) ? change.baseUrl.slice(0, 500) : ''
+      if (typeof change.model === 'string') next.model = change.model.slice(0, 200)
+      if (Object.keys(next).length > 0) providers[id] = next
+    }
+    patch.providers = providers
+  }
+  return patch
+}
+
+function readGranularity(value: unknown): StatsGranularity {
+  return value === 'month' ? 'month' : 'week'
+}
+
+function readTime(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error('invalid time')
+  return value
 }
 
 function requireId(value: unknown): string {
@@ -128,6 +170,11 @@ export function registerIpc(context: IpcContext): void {
     if (id) context.completeNote(id)
   })
 
+  ipcMain.on(IPC.NOTE_ABANDON, (event) => {
+    const id = noteOf(event)
+    if (id) context.abandonNote(id)
+  })
+
   ipcMain.on(IPC.NOTE_TEAR_FINISHED, (event) => {
     const id = noteOf(event)
     if (id) context.finishTear(id)
@@ -155,8 +202,42 @@ export function registerIpc(context: IpcContext): void {
     if (/^https?:\/\//i.test(url) || /^mailto:/i.test(url)) void shell.openExternal(url)
   })
 
-  ipcMain.on(IPC.NOTE_OPEN_MANAGER, (event) => {
-    if (noteOf(event)) context.openManager()
+  ipcMain.on(IPC.NOTE_OPEN_MANAGER, (event, page: unknown) => {
+    if (noteOf(event)) context.openManager(MANAGER_PAGES.includes(page as ManagerPage) ? page as ManagerPage : undefined)
+  })
+
+  // ---- translation: streamed back to the note that asked, cancelled when it closes ----
+
+  const translations = new Map<string, AbortController>()
+
+  ipcMain.handle(IPC.NOTE_AI_STATUS, (event) => {
+    if (!noteOf(event)) return null
+    return { ...context.ai.status(), target: context.ai.settings.get().translateTarget }
+  })
+
+  ipcMain.handle(IPC.NOTE_TRANSLATE, async (event, requestId: unknown, value: unknown): Promise<TranslateResult> => {
+    const id = noteOf(event)
+    const request = sanitizeTranslateRequest(value)
+    if (!id || typeof requestId !== 'number' || !request) return { ok: false, message: '没有可以翻译的文字' }
+    const sender = event.sender
+    const key = `${sender.id}:${requestId}`
+    translations.get(key)?.abort()
+    const controller = new AbortController()
+    translations.set(key, controller)
+    const abort = () => controller.abort()
+    sender.once('destroyed', abort)
+    try {
+      return await context.ai.translate(request, controller.signal, (translateEvent) => {
+        if (!sender.isDestroyed()) sender.send(IPC.NOTE_TRANSLATE_EVENT, requestId, translateEvent)
+      })
+    } finally {
+      if (translations.get(key) === controller) translations.delete(key)
+      if (!sender.isDestroyed()) sender.removeListener('destroyed', abort)
+    }
+  })
+
+  ipcMain.on(IPC.NOTE_TRANSLATE_CANCEL, (event, requestId: unknown) => {
+    if (noteOf(event) && typeof requestId === 'number') translations.get(`${event.sender.id}:${requestId}`)?.abort()
   })
 
   // ---- manager window ----
@@ -198,6 +279,11 @@ export function registerIpc(context: IpcContext): void {
     return service.clearArchived()
   })
 
+  ipcMain.handle(IPC.MANAGER_CLEAR_ABANDONED, async (event) => {
+    assertManager(event)
+    return service.clearAbandoned()
+  })
+
   ipcMain.handle(IPC.MANAGER_SET_SETTINGS, (event, patch: unknown) => {
     assertManager(event)
     const source = isRecord(patch) ? patch : {}
@@ -225,5 +311,101 @@ export function registerIpc(context: IpcContext): void {
   ipcMain.handle(IPC.MANAGER_INSTALL_UPDATE, (event) => {
     assertManager(event)
     context.installUpdate()
+  })
+
+  // ---- statistics ----
+
+  let insightRun: AbortController | null = null
+
+  ipcMain.handle(IPC.MANAGER_STATS, (event) => {
+    assertManager(event)
+    return context.statsDataset()
+  })
+
+  ipcMain.handle(IPC.MANAGER_INSIGHT_GET, (event, granularity: unknown, start: unknown) => {
+    assertManager(event)
+    return context.ai.getInsight(readGranularity(granularity), readTime(start))
+  })
+
+  ipcMain.handle(IPC.MANAGER_INSIGHT_RUN, async (event, granularity: unknown, start: unknown) => {
+    assertManager(event)
+    insightRun?.abort()
+    const controller = new AbortController()
+    insightRun = controller
+    try {
+      return await context.runInsight(readGranularity(granularity), readTime(start), controller.signal)
+    } finally {
+      if (insightRun === controller) insightRun = null
+    }
+  })
+
+  ipcMain.handle(IPC.MANAGER_INSIGHT_CANCEL, (event) => {
+    assertManager(event)
+    insightRun?.abort()
+  })
+
+  // ---- language model settings ----
+
+  const { ai } = context
+
+  ipcMain.handle(IPC.MANAGER_AI_SETTINGS, (event) => {
+    assertManager(event)
+    return ai.publicSettings()
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_UPDATE, (event, patch: unknown) => {
+    assertManager(event)
+    return ai.update(sanitizeAiPatch(patch))
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_STATUS, (event) => {
+    assertManager(event)
+    return ai.status()
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_TEST, (event) => {
+    assertManager(event)
+    return ai.test()
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_MODELS, (event, provider: unknown) => {
+    assertManager(event)
+    return ai.listModels(PROVIDER_IDS.includes(provider as ProviderId) ? provider as ProviderId : undefined)
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_DETECT_KEY, (event, key: unknown) => {
+    assertManager(event)
+    return ai.detectKey(typeof key === 'string' ? key.slice(0, 4000) : '')
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_SOURCES, (event) => {
+    assertManager(event)
+    return ai.sources()
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_IMPORT, (event, id: unknown) => {
+    assertManager(event)
+    return ai.importSource(typeof id === 'string' ? id.slice(0, 200) : '')
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_SIGN_IN, (event) => {
+    assertManager(event)
+    return ai.signIn()
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_SIGN_IN_CANCEL, (event) => {
+    assertManager(event)
+    ai.cancelSignIn()
+  })
+
+  ipcMain.handle(IPC.MANAGER_AI_SIGN_OUT, (event) => {
+    assertManager(event)
+    return ai.signOut()
+  })
+
+  /** Provider pages (getting a key, docs); https only. */
+  ipcMain.handle(IPC.MANAGER_OPEN_URL, async (event, url: unknown) => {
+    assertManager(event)
+    if (typeof url === 'string' && /^https:\/\//i.test(url)) await shell.openExternal(url)
   })
 }

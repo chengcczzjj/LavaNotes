@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import {
   Archive,
+  ArchiveX,
+  Bot,
+  ChartColumn,
   Eye,
   EyeOff,
   FolderOpen,
@@ -15,10 +18,18 @@ import {
   StickyNote,
   Trash2,
 } from 'lucide-react'
-import type { ManagerSnapshot, NoteLayer, NoteRecord, UpdateState } from '@shared/types'
-import { NOTE_LAYERS, NOTE_LAYER_LABELS, displayTitle } from '@shared/note-model'
+import { MANAGER_PAGES, type ManagerPage, type ManagerSnapshot, type NoteLayer, type NoteRecord, type UpdateState } from '@shared/types'
+import { NOTE_LAYERS, NOTE_LAYER_LABELS, displayTitle, isInProgress, noteState } from '@shared/note-model'
+import { StatsPage } from './StatsPage'
+import { AiPage } from './AiPage'
 
-type Tab = 'notes' | 'archive' | 'settings'
+type Tab = ManagerPage
+
+/** The page the window was opened on (?page=notes from a note's 便签管理, ?page=ai from 配置模型); statistics first otherwise. */
+function initialTab(): Tab {
+  const page = new URLSearchParams(window.location.search).get('page')
+  return MANAGER_PAGES.includes(page as Tab) ? page as Tab : 'stats'
+}
 
 const api = window.lavaManager
 
@@ -59,24 +70,66 @@ function LayerBadge({ layer }: { layer: NoteLayer }) {
   )
 }
 
+type NoteFilter = 'active' | 'completed' | 'abandoned' | 'all'
+
+const FILTERS: Array<{ id: NoteFilter; label: string }> = [
+  // Notes still on the desk. 进行中 is the mark a note gets from its own button.
+  { id: 'active', label: '未完成' },
+  { id: 'completed', label: '已撕下' },
+  { id: 'abandoned', label: '已废弃' },
+  { id: 'all', label: '全部' },
+]
+
+const FILTER_HINTS: Partial<Record<NoteFilter, string>> = {
+  completed: '点 ✓ 撕下的便签留在这里，可以重新贴回。',
+  abandoned: '在 ⋯ 里点“废弃”的便签留在这里：不在桌面上，但内容还在，也计入统计，可以重新贴回。',
+}
+
+const FILTER_EMPTY: Record<NoteFilter, string> = {
+  active: '还没有便签，点“新建便签”贴一张到桌面。',
+  completed: '还没有撕下的便签。',
+  abandoned: '还没有废弃的便签。',
+  all: '还没有便签。',
+}
+
+function shortTime(time: number): string {
+  return new Date(time).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+}
+
+/** When a note left the desk, used to sort torn-off and abandoned notes. */
+function leftAt(note: NoteRecord): number {
+  return note.archivedAt ?? note.abandonedAt ?? note.updatedAt
+}
+
 function NoteCard({ note }: { note: NoteRecord }) {
+  const state = noteState(note)
+  const active = state === 'active'
   return (
-    <article className="card" data-color={note.color} data-hidden={!note.visible}>
-      <div className="card__paper" onDoubleClick={() => void api.focus(note.id)} title="双击打开">
+    <article className="card" data-color={note.color} data-hidden={active && !note.visible} data-state={state}>
+      <div className="card__paper" onDoubleClick={active ? () => void api.focus(note.id) : undefined} title={active ? '双击打开' : undefined}>
         <strong>{displayTitle(note)}</strong>
         <p>{note.preview.split('\n').slice(1).join(' ') || (note.imageCount > 0 ? '' : '（还没有内容）')}</p>
         <div className="card__badges">
+          {state === 'completed' && <span className="badge badge--state"><Archive size={11} />撕下于 {shortTime(note.archivedAt!)}</span>}
+          {state === 'abandoned' && <span className="badge badge--state"><ArchiveX size={11} />废弃于 {shortTime(note.abandonedAt!)}</span>}
+          {isInProgress(note) && <span className="badge badge--doing" title={`${shortTime(note.startedAt!)} 开始`}><i aria-hidden />进行中</span>}
           {note.imageCount > 0 && <span className="badge"><ImageIcon size={11} />{note.imageCount}</span>}
-          <LayerBadge layer={note.layer} />
+          {active && <LayerBadge layer={note.layer} />}
         </div>
       </div>
       <footer className="card__actions">
-        <button type="button" title={note.visible ? '从桌面收起' : '显示到桌面'} onClick={() => void api.setVisible(note.id, !note.visible)}>
-          {note.visible ? <EyeOff size={14} /> : <Eye size={14} />}
-          {note.visible ? '收起' : '显示'}
-        </button>
-        <button type="button" title="打开并定位" onClick={() => void api.focus(note.id)}>打开</button>
-        <button type="button" title="删除" onClick={() => void api.remove(note.id)}><Trash2 size={14} /></button>
+        {active ? (
+          <>
+            <button type="button" title={note.visible ? '从桌面收起' : '显示到桌面'} onClick={() => void api.setVisible(note.id, !note.visible)}>
+              {note.visible ? <EyeOff size={14} /> : <Eye size={14} />}
+              {note.visible ? '收起' : '显示'}
+            </button>
+            <button type="button" title="打开并定位" onClick={() => void api.focus(note.id)}>打开</button>
+          </>
+        ) : (
+          <button type="button" title="重新贴回桌面" onClick={() => void api.reopen(note.id)}><RotateCcw size={14} />重新贴回</button>
+        )}
+        <button type="button" title={active ? '删除' : '永久删除'} onClick={() => void api.remove(note.id)}><Trash2 size={14} /></button>
       </footer>
     </article>
   )
@@ -84,13 +137,27 @@ function NoteCard({ note }: { note: NoteRecord }) {
 
 function NotesTab({ notes }: { notes: NoteRecord[] }) {
   const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<NoteFilter>('active')
+  const [confirmClear, setConfirmClear] = useState(false)
+  const counts = useMemo(() => {
+    const result: Record<NoteFilter, number> = { active: 0, completed: 0, abandoned: 0, all: notes.length }
+    for (const note of notes) result[noteState(note)] += 1
+    return result
+  }, [notes])
   const filtered = useMemo(() => {
     const text = query.trim().toLowerCase()
     return notes
-      .filter((note) => note.archivedAt === undefined)
+      .filter((note) => filter === 'all' || noteState(note) === filter)
       .filter((note) => !text || `${note.title}\n${note.preview}`.toLowerCase().includes(text))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-  }, [notes, query])
+      .sort((a, b) => (filter === 'completed' || filter === 'abandoned' ? leftAt(b) - leftAt(a) : b.updatedAt - a.updatedAt))
+  }, [notes, query, filter])
+  const clearable = filter === 'completed' || filter === 'abandoned'
+  const clear = filter === 'completed' ? api.clearArchived : api.clearAbandoned
+  const choose = (next: NoteFilter) => {
+    setFilter(next)
+    setConfirmClear(false)
+  }
+
   return (
     <section className="panel">
       <div className="panel__toolbar">
@@ -100,41 +167,26 @@ function NotesTab({ notes }: { notes: NoteRecord[] }) {
         </label>
         <button type="button" className="primary" onClick={() => void api.create({ focus: true })}><Plus size={15} />新建便签</button>
       </div>
-      {filtered.length === 0 ? (
-        <p className="empty">{query ? '没有找到相关便签。' : '还没有便签，点“新建便签”贴一张到桌面。'}</p>
-      ) : (
-        <div className="grid">{filtered.map((note) => <NoteCard key={note.id} note={note} />)}</div>
-      )}
-    </section>
-  )
-}
-
-function ArchiveTab({ notes }: { notes: NoteRecord[] }) {
-  const archived = notes
-    .filter((note) => note.archivedAt !== undefined)
-    .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
-  const [confirmClear, setConfirmClear] = useState(false)
-  return (
-    <section className="panel">
       <div className="panel__toolbar">
-        <p className="hint">点 ✓ 撕下的便签会留在这里，可以重新贴回。</p>
-        {archived.length > 0 && (confirmClear ? (
-          <button type="button" className="danger" onClick={() => void api.clearArchived().then(() => setConfirmClear(false))}>确认清空 {archived.length} 张</button>
+        <div className="segmented note-filter" role="tablist" aria-label="按状态筛选">
+          {FILTERS.map((item) => (
+            <button key={item.id} type="button" role="tab" aria-selected={filter === item.id} data-selected={filter === item.id} onClick={() => choose(item.id)}>
+              {item.label}<span className="count">{counts[item.id]}</span>
+            </button>
+          ))}
+        </div>
+        <p className="hint">{FILTER_HINTS[filter] ?? ''}</p>
+        {clearable && filtered.length > 0 && !query && (confirmClear ? (
+          <button type="button" className="danger" onClick={() => void clear().then(() => setConfirmClear(false))}>确认清空 {filtered.length} 张</button>
         ) : (
           <button type="button" onClick={() => setConfirmClear(true)}><Trash2 size={14} />清空</button>
         ))}
       </div>
-      {archived.length === 0 && <p className="empty">还没有撕下的便签。</p>}
-      {archived.map((note) => (
-        <div key={note.id} className="archive-row" data-color={note.color}>
-          <div className="archive-row__main">
-            <strong>{displayTitle(note)}</strong>
-            <span>{note.archivedAt ? `撕下于 ${new Date(note.archivedAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
-          </div>
-          <button type="button" onClick={() => void api.reopen(note.id)}><RotateCcw size={14} />重新贴回</button>
-          <button type="button" title="永久删除" onClick={() => void api.remove(note.id)}><Trash2 size={14} /></button>
-        </div>
-      ))}
+      {filtered.length === 0 ? (
+        <p className="empty">{query ? '没有找到相关便签。' : FILTER_EMPTY[filter]}</p>
+      ) : (
+        <div className="grid">{filtered.map((note) => <NoteCard key={note.id} note={note} />)}</div>
+      )}
     </section>
   )
 }
@@ -185,17 +237,19 @@ function SettingsTab({ snapshot }: { snapshot: ManagerSnapshot }) {
 }
 
 const TABS: Array<{ id: Tab; label: string; icon: React.ReactNode }> = [
-  { id: 'notes', label: '全部便签', icon: <StickyNote size={15} /> },
-  { id: 'archive', label: '已撕下', icon: <Archive size={15} /> },
+  { id: 'stats', label: '便签统计', icon: <ChartColumn size={15} /> },
+  { id: 'notes', label: '便签管理', icon: <StickyNote size={15} /> },
   { id: 'settings', label: '设置', icon: <Settings size={15} /> },
+  { id: 'ai', label: 'AI 配置', icon: <Bot size={15} /> },
 ]
 
 export function ManagerApp() {
   const snapshot = useSnapshot()
-  const [tab, setTab] = useState<Tab>('notes')
+  const [tab, setTab] = useState<Tab>(initialTab)
+  useEffect(() => api.onNavigate(setTab), [])
   if (!snapshot) return <div className="loading">LavaNotes</div>
   const notes = snapshot.notes
-  const active = notes.filter((note) => note.archivedAt === undefined)
+  const active = notes.filter((note) => noteState(note) === 'active')
   const visible = active.filter((note) => note.visible).length
   return (
     <div className="manager">
@@ -209,15 +263,16 @@ export function ManagerApp() {
           ))}
         </nav>
         <div className="sidebar__stats">
-          <span><strong>{active.length}</strong>张便签</span>
+          <span><strong>{active.length}</strong>张未完成</span>
           <span><strong>{visible}</strong>在桌面</span>
         </div>
-        <button type="button" className="sidebar__show" onClick={() => void api.showAll()}><Eye size={14} />显示全部便签</button>
+        <button type="button" className="sidebar__show" title="把桌面上的便签都调到其他窗口前面（已收起的和钉在桌面的不变），和单击托盘图标一样" onClick={() => void api.showAll()}><Eye size={14} />显示全部便签</button>
       </aside>
-      <main>
+      <main data-tab={tab}>
+        {tab === 'stats' && <StatsPage onOpenAi={() => setTab('ai')} />}
         {tab === 'notes' && <NotesTab notes={notes} />}
-        {tab === 'archive' && <ArchiveTab notes={notes} />}
         {tab === 'settings' && <SettingsTab snapshot={snapshot} />}
+        {tab === 'ai' && <AiPage />}
       </main>
     </div>
   )

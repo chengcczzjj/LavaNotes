@@ -33,7 +33,14 @@ export interface NoteRecord {
   lastActiveAt: number
   /** Set when the note is finished and torn off. Archived notes stay hidden until restored. */
   archivedAt?: number
+  /** Set when the note is given up (discarded). Kept, hidden and counted, like an archived note. */
+  abandonedAt?: number
+  /** Set while the note is marked as being worked on. Kept when it is torn off, cleared when it is put back. */
+  startedAt?: number
 }
+
+/** How a note leaves the desk: torn off when done, crumpled when given up. */
+export type LeaveKind = 'tear' | 'crumple'
 
 /** TipTap/ProseMirror JSON. Kept loose here; the editor owns the schema. */
 export interface NoteDocNode {
@@ -60,6 +67,8 @@ export interface NotePatch {
   fontFamily?: NoteFontFamily
   fontSize?: number
   layer?: NoteLayer
+  /** Mark the note as being worked on, or stop. */
+  inProgress?: boolean
 }
 
 export interface AppSettings {
@@ -100,6 +109,11 @@ export interface ManagerSnapshot {
   desktopPinSupported: boolean
   dataDir: string
 }
+
+/** Pages of the manager window. */
+export type ManagerPage = 'stats' | 'notes' | 'settings' | 'ai'
+
+export const MANAGER_PAGES: readonly ManagerPage[] = ['stats', 'notes', 'settings', 'ai']
 
 export type UpdateState =
   | { status: 'idle' }

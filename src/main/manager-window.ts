@@ -1,4 +1,6 @@
 import { BrowserWindow, shell } from 'electron'
+import { IPC } from '@shared/ipc'
+import { MANAGER_PAGES, type ManagerPage } from '@shared/types'
 import { rendererUrl, resourcePath } from './app-paths'
 
 let manager: BrowserWindow | null = null
@@ -11,19 +13,22 @@ export function isManagerWebContents(id: number): boolean {
   return getManagerWindow()?.webContents.id === id
 }
 
-export function openManagerWindow(preload: string): BrowserWindow {
+/** Open (or bring forward) the manager, optionally on a page such as the model settings. */
+export function openManagerWindow(preload: string, page?: ManagerPage): BrowserWindow {
+  const target = MANAGER_PAGES.includes(page as ManagerPage) ? page : undefined
   const existing = getManagerWindow()
   if (existing) {
     if (existing.isMinimized()) existing.restore()
     existing.show()
     existing.focus()
+    if (target) existing.webContents.send(IPC.MANAGER_NAVIGATE, target)
     return existing
   }
   const win = new BrowserWindow({
-    width: 1000,
-    height: 720,
-    minWidth: 760,
-    minHeight: 540,
+    width: 1080,
+    height: 760,
+    minWidth: 820,
+    minHeight: 560,
     show: false,
     title: 'LavaNotes',
     backgroundColor: '#f6f1e6',
@@ -48,6 +53,6 @@ export function openManagerWindow(preload: string): BrowserWindow {
   win.on('closed', () => {
     if (manager === win) manager = null
   })
-  void win.loadURL(rendererUrl('manager'))
+  void win.loadURL(rendererUrl('manager', target ? { page: target } : {}))
   return win
 }

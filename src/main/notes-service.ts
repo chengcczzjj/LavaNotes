@@ -203,7 +203,7 @@ export class NotesService extends EventEmitter {
   setVisible(id: string, visible: boolean): NoteRecord | null {
     const note = this.notes.get(id)
     if (!note || note.visible === visible) return note ?? null
-    if (visible && note.archivedAt !== undefined) return note
+    if (visible && (note.archivedAt !== undefined || note.abandonedAt !== undefined)) return note
     return this.commit({ ...note, visible, ...(visible ? { lastActiveAt: this.now() } : {}) })
   }
 
@@ -217,15 +217,26 @@ export class NotesService extends EventEmitter {
   /** A finished note is torn off: hidden and kept in the archive until restored or deleted. */
   archive(id: string): NoteRecord | null {
     const note = this.notes.get(id)
-    if (!note || note.archivedAt !== undefined) return note ?? null
+    if (!note || note.archivedAt !== undefined || note.abandonedAt !== undefined) return note ?? null
     return this.commit({ ...note, visible: false, archivedAt: this.now() })
   }
 
+  /** A note given up is crumpled away: hidden but kept, so it still counts in the statistics. */
+  abandon(id: string): NoteRecord | null {
+    const note = this.notes.get(id)
+    if (!note || note.archivedAt !== undefined || note.abandonedAt !== undefined) return note ?? null
+    return this.commit({ ...note, visible: false, abandonedAt: this.now() })
+  }
+
+  /** Put a torn-off or abandoned note back on the desk. */
   reopen(id: string): NoteRecord | null {
     const note = this.notes.get(id)
-    if (note?.archivedAt === undefined) return note ?? null
+    if (!note || (note.archivedAt === undefined && note.abandonedAt === undefined)) return note ?? null
     const next: NoteRecord = { ...note, visible: true, lastActiveAt: this.now(), updatedAt: this.now() }
     delete next.archivedAt
+    delete next.abandonedAt
+    // Back on the desk as a fresh note, not as one still being worked on.
+    delete next.startedAt
     return this.commit(next)
   }
 
@@ -245,6 +256,12 @@ export class NotesService extends EventEmitter {
     const archived = this.list().filter((note) => note.archivedAt !== undefined)
     for (const note of archived) await this.remove(note.id)
     return archived.length
+  }
+
+  async clearAbandoned(): Promise<number> {
+    const abandoned = this.list().filter((note) => note.abandonedAt !== undefined)
+    for (const note of abandoned) await this.remove(note.id)
+    return abandoned.length
   }
 
   async flush(): Promise<void> {

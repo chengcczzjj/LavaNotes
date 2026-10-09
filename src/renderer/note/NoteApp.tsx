@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Check, Ellipsis, Layers, Pin, Plus } from 'lucide-react'
-import type { NoteInit, NotePatch, NoteRecord } from '@shared/types'
-import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH } from '@shared/note-model'
+import type { LeaveKind, NoteInit, NotePatch, NoteRecord } from '@shared/types'
+import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH, isInProgress } from '@shared/note-model'
 import { getWindowMargin } from '@shared/geometry'
 import { NoteEditor, type NoteEditorHandle } from './NoteEditor'
 import { NoteMenu } from './NoteMenu'
@@ -14,6 +14,43 @@ const FONT_FAMILY_CSS: Record<NoteRecord['fontFamily'], string> = {
   serif: 'Georgia, "Times New Roman", "Songti SC", "SimSun", serif',
   mono: '"Cascadia Code", Consolas, "Microsoft YaHei UI", monospace',
   handwritten: '"Segoe Print", "Comic Sans MS", "KaiTi", cursive',
+}
+
+const MINUTE = 60_000
+
+/** "进行中 · 25 分钟": how long the note has been worked on, coarse enough to update twice a minute. */
+function elapsedLabel(since: number, now: number): string {
+  const minutes = Math.floor(Math.max(0, now - since) / MINUTE)
+  if (minutes < 1) return '刚开始'
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return minutes % 60 >= 30 && hours < 10 ? `${hours} 个半小时` : `${hours} 小时`
+  return `${Math.floor(hours / 24)} 天`
+}
+
+function useNow(enabled: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!enabled) return
+    const timer = window.setInterval(() => setNow(Date.now()), MINUTE / 2)
+    return () => window.clearInterval(timer)
+  }, [enabled])
+  return now
+}
+
+/**
+ * The in-progress mark, shared with checklist items: a ring with a play
+ * triangle that turns into a slowly breathing dot with an arc orbiting it.
+ * Only transforms and opacity animate, so the compositor does the work.
+ */
+function DoingGlyph({ active }: { active: boolean }) {
+  return (
+    <span className="doing-glyph" data-active={active} aria-hidden>
+      <span className="doing-glyph__orbit" />
+      <span className="doing-glyph__play" />
+      <span className="doing-glyph__dot" />
+    </span>
+  )
 }
 
 /**
@@ -32,9 +69,10 @@ export function NoteApp({ init }: { init: NoteInit }) {
   const [note, setNote] = useState<NoteRecord>(init.note)
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState(false)
-  const [tearing, setTearing] = useState(false)
+  const [leaving, setLeaving] = useState<LeaveKind | null>(null)
   const [liveSize, setLiveSize] = useState<{ width: number; height: number } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [isDragging, setDragging] = useState(false)
   const editorRef = useRef<NoteEditorHandle>(null)
   const busy = useRef(false)
   const menuButton = useRef<HTMLButtonElement>(null)
@@ -55,10 +93,10 @@ export function NoteApp({ init }: { init: NoteInit }) {
 
   useEffect(() => {
     const offUpdated = window.lavaNote.onUpdated((next) => setNote(next))
-    const offTear = window.lavaNote.onPlayTear(() => {
+    const offTear = window.lavaNote.onPlayTear((kind) => {
       editorRef.current?.flush()
       setMenuOpen(false)
-      setTearing(true)
+      setLeaving(kind === 'crumple' ? 'crumple' : 'tear')
       window.setTimeout(() => window.lavaNote.tearFinished(), TEAR_DURATION_MS)
     })
     const offFocus = window.lavaNote.onFocusEditor(() => editorRef.current?.focus())
@@ -102,6 +140,7 @@ export function NoteApp({ init }: { init: NoteInit }) {
       if (!dragging) {
         if (Math.hypot(moveEvent.screenX - start.x, moveEvent.screenY - start.y) < DRAG_THRESHOLD) return
         dragging = true
+        setDragging(true)
         window.lavaNote.dragStart()
       }
       if (frame === null) {
@@ -116,7 +155,10 @@ export function NoteApp({ init }: { init: NoteInit }) {
       target.removeEventListener('pointerup', end)
       target.removeEventListener('pointercancel', end)
       if (frame !== null) window.cancelAnimationFrame(frame)
-      if (dragging) window.lavaNote.dragEnd()
+      if (dragging) {
+        window.lavaNote.dragEnd()
+        setDragging(false)
+      }
       busy.current = false
     }
     target.addEventListener('pointermove', move)
@@ -173,6 +215,10 @@ export function NoteApp({ init }: { init: NoteInit }) {
   } as CSSProperties
 
   const short = size.height < 170
+  const doing = isInProgress(note)
+  const now = useNow(doing)
+  const startedAt = note.startedAt ?? now
+  const startedClock = new Date(startedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
 
   return (
     <div className="note-stage">
@@ -180,9 +226,12 @@ export function NoteApp({ init }: { init: NoteInit }) {
         className="note"
         data-hit
         data-color={note.color}
-        data-tearing={tearing}
+        data-tearing={leaving === 'tear'}
+        data-leaving={leaving ?? undefined}
         data-editing={editing}
         data-short={short}
+        data-doing={doing}
+        data-dragging={isDragging || undefined}
         style={style}
         onPointerDownCapture={() => window.lavaNote.activated()}
         aria-label="便签"
@@ -191,19 +240,36 @@ export function NoteApp({ init }: { init: NoteInit }) {
         <div className="note__paper">
           <div className="note__grain" aria-hidden />
           <div className="note__tear-edge" aria-hidden />
+          <div className="note__crease" aria-hidden />
           <header className="note__topbar" onPointerDown={onDragPointerDown}>
             <button type="button" className="note__icon" title="新建便签 Ctrl+N" aria-label="新建便签" onClick={() => window.lavaNote.newNote()}>
               <Plus size={16} strokeWidth={1.9} />
             </button>
+            {doing && size.width >= 220 && (
+              <span className="note__doing-label" title={`${startedClock} 开始`}>
+                进行中{size.width >= 260 && <span> · {elapsedLabel(startedAt, now)}</span>}
+              </span>
+            )}
             <span className="note__spacer" />
             {note.layer === 'desktop' && <span className="note__icon note__icon--badge" title="钉在桌面"><Pin size={13} /></span>}
             {note.layer === 'top' && <span className="note__icon note__icon--badge" title="置顶"><Layers size={13} /></span>}
             <button
               type="button"
+              className="note__icon note__icon--doing"
+              title={doing ? `进行中，${startedClock} 开始。点一下取消` : '开始做：标记为进行中'}
+              aria-label={doing ? '取消进行中' : '标记为进行中'}
+              aria-pressed={doing}
+              disabled={leaving !== null}
+              onClick={() => void patch({ inProgress: !doing })}
+            >
+              <DoingGlyph active={doing} />
+            </button>
+            <button
+              type="button"
               className="note__icon note__icon--done"
               title="完成并撕下"
               aria-label="完成并撕下"
-              disabled={tearing}
+              disabled={leaving !== null}
               onClick={() => window.lavaNote.complete()}
             >
               <Check size={15} strokeWidth={2.4} />
@@ -212,7 +278,7 @@ export function NoteApp({ init }: { init: NoteInit }) {
               ref={menuButton}
               type="button"
               className="note__icon"
-              title="更多：纸色、便签管理、删除"
+              title="更多：纸色、便签管理、废弃、删除"
               aria-label="更多设置"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((open) => !open)}
@@ -234,9 +300,11 @@ export function NoteApp({ init }: { init: NoteInit }) {
             <NoteEditor
               ref={editorRef}
               doc={init.doc}
+              times={init.note}
               onFocusChange={setEditing}
               onTooLarge={() => showToast('内容太多了，这次修改没有保存。可以拆成两张便签。')}
               onImageFailed={() => showToast('这张图片没能加入：只支持 PNG、JPG、GIF、WebP，且不超过 15MB。')}
+              onNothingToTranslate={() => showToast('这张便签还没有可以翻译的文字。')}
             />
           </div>
 

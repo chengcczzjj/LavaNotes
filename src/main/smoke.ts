@@ -1,6 +1,11 @@
 import { app } from 'electron'
+import { IPC } from '@shared/ipc'
 import { writeFile } from 'node:fs/promises'
 import type { CreateNoteOptions, NoteRecord } from '@shared/types'
+import { periodStart, type StatsDataset, type StatsGranularity } from '@shared/stats'
+import type { InsightRunResult } from '@shared/insights'
+import type { AiService } from './ai/service'
+import { startMockModelServer } from './smoke-ai'
 import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH } from '@shared/note-model'
 import { getWindowMargin, windowBoundsForPaper } from '@shared/geometry'
 import type { NotesService } from './notes-service'
@@ -9,12 +14,17 @@ import { storeImage } from './assets'
 import { openManagerWindow } from './manager-window'
 import { preloadPath } from './app-paths'
 import { runWindowsDesktopChecks } from './smoke-windows'
+import { trayPopup } from './tray'
 
 interface SmokeContext {
   service: NotesService
   windows: NoteWindowManager
   createNote: (options: CreateNoteOptions) => Promise<NoteRecord | null>
   completeNote: (id: string) => void
+  abandonNote: (id: string) => void
+  statsDataset: () => Promise<StatsDataset>
+  ai: AiService
+  runInsight: (granularity: StatsGranularity, start: number, signal: AbortSignal) => Promise<InsightRunResult>
 }
 
 interface Check {
@@ -46,7 +56,7 @@ async function waitFor<T>(probe: () => T | Promise<T>, timeoutMs = 8000): Promis
  * End-to-end check run with LAVANOTES_SMOKE=1 against a throwaway userData.
  * It drives real windows and writes a JSON report for tests/smoke/run-smoke.mjs.
  */
-export async function runSmoke({ service, windows, createNote, completeNote }: SmokeContext): Promise<void> {
+export async function runSmoke({ service, windows, createNote, completeNote, abandonNote, statsDataset, ai, runInsight }: SmokeContext): Promise<void> {
   const checks: Check[] = []
   const check = (name: string, ok: unknown, detail?: unknown) => {
     checks.push({ name, ok: Boolean(ok), detail })
@@ -60,6 +70,14 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
       win.webContents.executeJavaScript(script, true),
       sleep(3000).then(() => { throw new Error(`script timed out in ${id}: ${win.webContents.getURL()}`) }),
     ])
+  }
+  const shot = async (name: string, target: Electron.BrowserWindow | undefined) => {
+    const dir = process.env.LAVANOTES_SMOKE_SHOTS
+    if (!dir || !target) return
+    // Let the compositor draw the change just made; a capture can otherwise be a frame behind.
+    await sleep(400)
+    const { join } = await import('node:path')
+    await writeFile(join(dir, `${name}.png`), (await target.webContents.capturePage()).toPNG())
   }
   const rendered = (id: string) => evalIn(id, `Boolean(document.querySelector('.note .note-editor'))`).catch(() => false)
 
@@ -160,13 +178,175 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
     if (d) service.reopen(d.id)
     const dBack = Boolean(d) && await waitFor(() => rendered(d!.id), 5000)
     check('a torn-off note can be put back', dBack && service.get(d!.id)?.visible === true)
+    if (d && dBack) {
+      // ▷ marks the note in progress (amber mark, light along the bar); a second click stops it.
+      await evalIn(d.id, `document.querySelector('.note__icon--doing').click()`)
+      const dStarted = await waitFor(() => service.get(d.id)?.startedAt !== undefined, 3000)
+      const dMarked = await waitFor(() => evalIn(d.id, `Boolean(document.querySelector('.note[data-doing="true"] .note__doing-label'))`), 3000)
+      check('▷ in the top bar marks the note in progress', dStarted && dMarked, service.get(d.id)?.startedAt)
+      await shot('note-doing', windows.windowFor(d.id))
+      await evalIn(d.id, `document.querySelector('.note__icon--doing').click()`)
+      const dStopped = await waitFor(() => service.get(d.id)?.startedAt === undefined, 3000)
+      check('clicking ▷ again stops it', dStopped)
+      // Left in progress for the manager's badge and the tray menu's count.
+      service.patch(d.id, { inProgress: true })
+    }
+
+    // Checklist items record when they were added and checked; the secondary menu holds italic,
+    // strikethrough and translate; ⋯ → 废弃 crumples the note away but keeps it.
+    const e = await createNote({ text: '', focus: false })
+    const eReady = Boolean(e) && await waitFor(() => rendered(e!.id))
+    const winE = e ? windows.windowFor(e.id) : undefined
+    if (e && eReady && winE) {
+      winE.show()
+      winE.focus()
+      winE.webContents.focus()
+      await evalIn(e.id, `document.querySelector('.ProseMirror').focus()`)
+      await sleep(150)
+      const listClicked = await waitFor(() => evalIn(e.id, `(() => { const button = document.querySelector('.note-toolbar button[title^="勾选清单"]'); if (!button) return false; button.click(); return true })()`), 3000)
+      winE.webContents.insertText('smoke task')
+      const stamped = listClicked && await waitFor(async () => {
+        const item = JSON.stringify(await service.readContent(e.id))
+        return item.includes('"taskItem"') && /"tid":"t/.test(item) && /"createdAt":\d+/.test(item)
+      }, 4000)
+      check('a new checklist item is stamped with an id and a time', stamped)
+      await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] input[type="checkbox"]').click()`)
+      const checkedAt = await waitFor(async () => /"checkedAt":\d+/.test(JSON.stringify(await service.readContent(e.id))), 4000)
+      check('checking an item records when it was checked', checkedAt)
+      // Right click on the box: a checked item goes back to in progress; checking it again keeps the start.
+      await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] > label').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`)
+      const doing = await waitFor(async () => {
+        const body = JSON.stringify(await service.readContent(e.id))
+        return /"startedAt":\d+/.test(body) && body.includes('"checked":false')
+      }, 4000)
+      const doingShown = await evalIn(e.id, `Boolean(document.querySelector('.note-editor li[data-checked="false"][data-started-at]'))`)
+      check('right click on a checklist box marks the item in progress', doing && doingShown)
+      await shot('note-task-doing', winE)
+      await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] input[type="checkbox"]').click()`)
+      const doneAgain = await waitFor(async () => {
+        const body = JSON.stringify(await service.readContent(e.id))
+        return /"checkedAt":\d+/.test(body) && /"startedAt":\d+/.test(body)
+      }, 4000)
+      check('checking an item in progress keeps when it started', doneAgain)
+      await shot('note-task-done', winE)
+
+      await evalIn(e.id, `document.querySelector('.ProseMirror').focus()`)
+      await sleep(120)
+      // Click once; React renders the menu after the click event, so wait for it separately.
+      await waitFor(() => evalIn(e.id, `(() => { const button = document.querySelector('.note-toolbar__more-button'); if (!button) return false; button.click(); return true })()`), 3000)
+      const menu = await waitFor(() => evalIn(e.id, `document.querySelector('.note-toolbar__more')?.innerText ?? ''`), 3000)
+      check('the secondary menu holds italic, strikethrough and translate', /斜体/.test(String(menu)) && /删除线/.test(String(menu)) && /翻译/.test(String(menu)), menu)
+      await sleep(300)
+      await shot('note-menu-more', winE)
+      await evalIn(e.id, `document.querySelector('.note-toolbar__translate')?.click()`)
+      const setup = await waitFor(() => evalIn(e.id, `document.querySelector('.note-translate__message')?.innerText ?? ''`), 5000)
+      check('translating without a model points to the model settings', /API Key|模型/.test(String(setup)), setup)
+      await shot('note-translate', winE)
+
+      await evalIn(e.id, `document.querySelector('.note__topbar button[aria-label="更多设置"]').click()`)
+      const abandonClicked = await waitFor(() => evalIn(e.id, `(() => { const button = document.querySelector('.note-menu__abandon'); if (!button) return false; button.click(); return true })()`), 3000)
+      const abandoned = abandonClicked && await waitFor(() => service.get(e.id)?.abandonedAt !== undefined, 4000)
+      check('⋯ → 废弃 crumples the note away and keeps it', abandoned && service.get(e.id)?.archivedAt === undefined)
+      await waitFor(() => !windows.windowFor(e.id), 3000)
+      check('the abandoned note window closes', !windows.windowFor(e.id))
+      const dataset = await statsDataset()
+      const entry = dataset.notes.find((note) => note.id === e.id)
+      check('statistics see the abandoned note and its checklist timeline', entry?.state === 'abandoned' && entry.tasks.length === 1 && entry.tasks[0].checkedAt !== null && entry.tasks[0].startedAt !== null, entry)
+    } else {
+      check('note E renders', false)
+    }
+    const f = await createNote({ text: 'smoke F', focus: false })
+    if (f) abandonNote(f.id)
+    const fAbandoned = Boolean(f) && await waitFor(() => service.get(f!.id)?.abandonedAt !== undefined, 4000)
+    check('abandoning from the main process works too', fAbandoned)
+
+    // The model pipeline end to end, against a local OpenAI-compatible stand-in.
+    const mock = await startMockModelServer()
+    try {
+      ai.update({ provider: 'custom', providers: { custom: { key: 'smoke-key', baseUrl: mock.baseUrl, model: 'mock-model' } } })
+      check('a custom service with a model is ready', ai.status().ok, ai.status())
+      const models = await ai.listModels('custom')
+      check('the model list comes from the service', models.ok && models.models.some((model) => model.id === 'mock-model'), models)
+      const g = await createNote({ text: '早上好\n明天开会', focus: false })
+      const gReady = Boolean(g) && await waitFor(() => rendered(g!.id))
+      const winG = g ? windows.windowFor(g.id) : undefined
+      if (g && gReady && winG) {
+        winG.show()
+        winG.focus()
+        winG.webContents.focus()
+        await evalIn(g.id, `document.querySelector('.ProseMirror').focus()`)
+        await sleep(150)
+        await waitFor(() => evalIn(g.id, `(() => { const button = document.querySelector('.note-toolbar__more-button'); if (!button) return false; button.click(); return true })()`), 3000)
+        await waitFor(() => evalIn(g.id, `Boolean(document.querySelector('.note-toolbar__translate'))`), 3000)
+        await evalIn(g.id, `document.querySelector('.note-toolbar__translate').click()`)
+        const shown = await waitFor(() => evalIn(g.id, `(() => { const body = document.querySelector('.note-translate__body')?.innerText ?? ''; const ready = !document.querySelector('.note-translate__actions button').disabled; return ready && body.includes('[EN] 明天开会') ? body : '' })()`), 8000)
+        check('a note is translated segment by segment', String(shown).includes('[EN] 早上好'), shown)
+        await shot('note-translated', winG)
+        await evalIn(g.id, `document.querySelector('.note-translate__actions button').click()`)
+        const replaced = await waitFor(async () => JSON.stringify(await service.readContent(g.id)).includes('[EN] 早上好'), 4000)
+        check('the translation replaces the note text', replaced)
+      } else {
+        check('note G renders', false)
+      }
+      const insight = await runInsight('week', periodStart(Date.now(), 'week'), new AbortController().signal)
+      check('the model reads the week and its answer is parsed', insight.ok && insight.record.insight.headline === '冒烟测试的一周' && insight.record.insight.topics[0].noteIds.length > 0, insight)
+      check('the model was reached through chat completions after the responses endpoint was missing',
+        mock.requests.some((line) => line.endsWith('/responses')) && mock.requests.some((line) => line.endsWith('/chat/completions')), mock.requests)
+    } finally {
+      await mock.close()
+    }
 
     if (process.platform === 'win32') await runWindowsDesktopChecks({ service, windows, createNote, evalIn, check })
 
+    // LavaNotes' own tray menu (Windows): placed by the cursor inside the work area, an option
+    // toggles in place, Escape closes it.
+    const tray = trayPopup()
+    if (tray) {
+      const { screen } = await import('electron')
+      const area = screen.getPrimaryDisplay().workArea
+      await tray.open({ x: area.x + area.width - 30, y: area.y + area.height + 10 })
+      const opened = await waitFor(() => tray.isOpen(), 4000)
+      const card = tray.cardBounds()
+      const inside = card !== null && card.x >= area.x && card.y >= area.y
+        && card.x + card.width <= area.x + area.width && card.y + card.height <= area.y + area.height
+      check('the tray menu opens inside the work area', opened && inside, { card, area })
+      const page = tray.contents()
+      const inTray = (script: string) => page ? page.executeJavaScript(script, true).catch(() => null) : Promise.resolve(null)
+      const items = await inTray(`[...document.querySelectorAll('.tray__item .tray__label')].map((label) => label.textContent).join('|')`)
+      check('the tray menu lists its commands', /新建便签/.test(String(items)) && /退出/.test(String(items)), items)
+      await shot('tray-menu', tray.window() ?? undefined)
+      const before = service.settings.launchAtLogin
+      await inTray(`[...document.querySelectorAll('.tray__item')].find((item) => item.textContent.includes('开机启动'))?.click()`)
+      const toggled = await waitFor(async () => service.settings.launchAtLogin !== before
+        && await inTray(`document.querySelector('.tray__switch')?.dataset.on`) === String(!before), 3000)
+      check('开机启动 toggles in place and the menu stays open', toggled && tray.isOpen())
+      page?.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+      const closed = await waitFor(() => !tray.isOpen(), 3000)
+      check('Escape closes the tray menu', closed)
+      tray.hide()
+    }
+
     // Manager window.
     const manager = openManagerWindow(preloadPath())
-    const managerReady = await waitFor(() => manager.webContents.executeJavaScript(`Boolean(document.querySelector('.manager .card'))`, true).catch(() => false), 8000)
-    check('manager window lists notes', managerReady)
+    const inManager = (script: string) => manager.webContents.executeJavaScript(script, true).catch(() => null)
+    const opensOnStats = await waitFor(() => inManager(`Boolean(document.querySelector('.manager .stats'))`), 8000)
+    check('the manager opens on the statistics page', opensOnStats)
+    manager.webContents.send(IPC.MANAGER_NAVIGATE, 'notes')
+    const managerReady = await waitFor(() => inManager(`Boolean(document.querySelector('.manager .card[data-state="active"]'))`), 8000)
+    check('便签管理 lists the notes in progress', managerReady)
+    await inManager(`[...document.querySelectorAll('.note-filter button')].find((button) => button.textContent.startsWith('已废弃'))?.click()`)
+    const abandonedListed = await waitFor(() => inManager(`(() => { const cards = [...document.querySelectorAll('.manager .card')]; return cards.length >= 2 && cards.every((card) => card.dataset.state === 'abandoned') })()`), 4000)
+    check('the 已废弃 filter lists only abandoned notes', abandonedListed)
+    manager.webContents.send(IPC.MANAGER_NAVIGATE, 'stats')
+    const statsReady = await waitFor(() => inManager(`document.querySelectorAll('.stats .tiles .tile').length === 5 && Boolean(document.querySelector('.stats .chart svg'))`), 8000)
+    check('the statistics page draws tiles and charts', statsReady)
+    const lifelinesDrawn = await waitFor(() => inManager(`document.querySelectorAll('.stats .life-row').length > 0`), 4000)
+    check('note lifelines are drawn', lifelinesDrawn)
+    const insightShown = await waitFor(() => inManager(`document.querySelector('.insight__headline')?.textContent === '冒烟测试的一周'`), 4000)
+    check('the AI reading is shown on the statistics page', insightShown)
+    manager.webContents.send(IPC.MANAGER_NAVIGATE, 'ai')
+    const aiReady = await waitFor(() => inManager(`Boolean(document.querySelector('.ai-page .status-bar')) && document.querySelectorAll('.ai-page .guide-row').length >= 9`), 8000)
+    check('the AI 配置 page lists providers', aiReady)
 
     const shots = process.env.LAVANOTES_SMOKE_SHOTS
     if (shots) {
@@ -179,7 +359,26 @@ export async function runSmoke({ service, windows, createNote, completeNote }: S
       await capture('note-a', windows.windowFor(a.id))
       await capture('note-b', windows.windowFor(b.id))
       await capture('welcome', welcome ? windows.windowFor(welcome.id) : undefined)
+      manager.webContents.send(IPC.MANAGER_NAVIGATE, 'notes')
+      await sleep(400)
       await capture('manager', manager)
+      manager.webContents.send(IPC.MANAGER_NAVIGATE, 'stats')
+      await sleep(1500)
+      await capture('manager-stats', manager)
+      for (const [index, offset] of [700, 1400, 2100].entries()) {
+        await manager.webContents.executeJavaScript(`document.querySelector('main').scrollTop = ${offset}`, true)
+        await sleep(900)
+        await capture(`manager-stats-${index + 2}`, manager)
+      }
+      await manager.webContents.executeJavaScript(`(() => { document.querySelector('main').scrollTop = 0; [...document.querySelectorAll('.stats-filters button')].find((button) => button.textContent === '按月')?.click() })()`, true)
+      await sleep(1500)
+      await capture('manager-stats-month', manager)
+      await manager.webContents.executeJavaScript(`document.querySelector('main').scrollTop = 1500`, true)
+      await sleep(900)
+      await capture('manager-stats-month-2', manager)
+      manager.webContents.send(IPC.MANAGER_NAVIGATE, 'ai')
+      await sleep(600)
+      await capture('manager-ai', manager)
     }
 
     await windows.flushAll()

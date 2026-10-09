@@ -40,6 +40,7 @@ export default defineConfig({
           host: resolve(__dirname, 'src/renderer/host/index.html'),
           note: resolve(__dirname, 'src/renderer/note/index.html'),
           manager: resolve(__dirname, 'src/renderer/manager/index.html'),
+          tray: resolve(__dirname, 'src/renderer/tray/index.html'),
         },
       },
     },

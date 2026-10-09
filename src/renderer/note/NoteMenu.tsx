@@ -1,5 +1,5 @@
 import { useEffect, useRef, type RefObject } from 'react'
-import { LayoutList, Trash2 } from 'lucide-react'
+import { ArchiveX, LayoutList, Trash2 } from 'lucide-react'
 import type { NotePatch, NoteRecord } from '@shared/types'
 import { NOTE_COLORS, NOTE_COLOR_LABELS } from '@shared/note-model'
 
@@ -43,8 +43,16 @@ export function NoteMenu({ note, anchor, onPatch, onClose }: NoteMenuProps) {
       </section>
 
       <section className="note-menu__actions">
-        <button type="button" onClick={() => window.lavaNote.openManager()}><LayoutList size={14} />便签管理</button>
-        <button type="button" className="note-menu__danger" onClick={() => window.lavaNote.remove()}><Trash2 size={14} />删除</button>
+        <button type="button" onClick={() => window.lavaNote.openManager('notes')}><LayoutList size={14} />便签管理</button>
+        <button
+          type="button"
+          className="note-menu__abandon"
+          title="不做了：揉掉收起，内容保留（便签管理里筛选“已废弃”可以找到），也计入统计"
+          onClick={() => window.lavaNote.abandon()}
+        >
+          <ArchiveX size={14} />废弃
+        </button>
+        <button type="button" className="note-menu__danger" title="永久删除，不留记录" onClick={() => window.lavaNote.remove()}><Trash2 size={14} />删除</button>
       </section>
     </div>
   )

@@ -1,14 +1,17 @@
 import { app, screen, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { AppSettings, CreateNoteOptions, ManagerSnapshot, NoteRecord } from '@shared/types'
-import { NOTE_DEFAULT_HEIGHT, NOTE_DEFAULT_WIDTH } from '@shared/note-model'
+import type { AppSettings, CreateNoteOptions, LeaveKind, ManagerPage, ManagerSnapshot, NoteRecord } from '@shared/types'
+import { NOTE_DEFAULT_HEIGHT, NOTE_DEFAULT_WIDTH, isInProgress, noteState } from '@shared/note-model'
 import { placeNewNote } from '@shared/geometry'
+import { buildStatsNote, periodEnd, summarizePeriod, type StatsDataset, type StatsGranularity } from '@shared/stats'
+import { pickInsightNotes } from '@shared/insights'
 import { applyUserDataOverride } from './env'
 import { preloadPath, registerProtocolHandlers, registerSchemes } from './app-paths'
 import { NotesService } from './notes-service'
 import { NoteWindowManager } from './note-windows'
 import { registerIpc } from './ipc'
 import { getManagerWindow, isManagerWebContents, openManagerWindow } from './manager-window'
+import { AiService } from './ai/service'
 import { createTray, destroyTray, refreshTrayMenu, type TrayActions } from './tray'
 import { checkForUpdates, getUpdateState, installUpdate, onUpdateState, startAutoUpdates } from './updater'
 import { log } from './log'
@@ -30,7 +33,7 @@ if (!app.requestSingleInstanceLock()) {
 const WELCOME_TEXT = [
   '欢迎使用 LavaNotes',
   '拖动顶部纸条或胶带可以移动便签，拖右下角折角调整大小。',
-  '写完的事点右上角 ✓ 撕下；点 ⋯ 可以换纸色、打开便签管理或删除。',
+  '正在做的点右上角 ▷ 标成进行中，写完的事点 ✓ 撕下；点 ⋯ 可以换纸色、打开便签管理或删除。',
   '图片可以直接粘贴、拖进来；也可以插入简单表格。',
 ].join('\n')
 
@@ -43,6 +46,13 @@ async function main(): Promise<void> {
   })
   const loaded = await service.load()
   log('app.start', { version: app.getVersion(), notes: service.list().length, index: loaded.source, quarantined: loaded.quarantined })
+
+  const ai = new AiService({ userData: app.getPath('userData'), log })
+  try {
+    ai.load()
+  } catch (error) {
+    log('ai.settings-load-failed', { message: (error as Error).message })
+  }
 
   registerProtocolHandlers(service.paths.assetsDir)
   const preload = preloadPath()
@@ -79,21 +89,46 @@ async function main(): Promise<void> {
   }
 
   // ✓ means done: play the tear animation, then archive the note.
-  const tearing = new Set<string>()
-  const finishTear = (id: string): void => {
-    if (!tearing.delete(id)) return
-    service.archive(id)
+  // 废弃 means given up: the note crumples away and is kept as abandoned.
+  const leaving = new Map<string, LeaveKind>()
+  const settle = (id: string, kind: LeaveKind): void => {
+    if (kind === 'tear') service.archive(id)
+    else service.abandon(id)
   }
-  const completeNote = (id: string): void => {
+  const finishTear = (id: string): void => {
+    const kind = leaving.get(id)
+    if (!kind) return
+    leaving.delete(id)
+    settle(id, kind)
+  }
+  const retireNote = (id: string, kind: LeaveKind): void => {
     const note = service.get(id)
-    if (!note || note.archivedAt !== undefined || tearing.has(id)) return
-    if (!windows.playTear(id)) {
-      service.archive(id)
+    if (!note || note.archivedAt !== undefined || note.abandonedAt !== undefined || leaving.has(id)) return
+    if (!windows.playTear(id, kind)) {
+      settle(id, kind)
       return
     }
-    tearing.add(id)
+    leaving.set(id, kind)
     // The window reports the end of the animation; this covers a window that never answers.
     setTimeout(() => finishTear(id), 2500)
+  }
+  const completeNote = (id: string): void => retireNote(id, 'tear')
+  const abandonNote = (id: string): void => retireNote(id, 'crumple')
+
+  const statsDataset = async (): Promise<StatsDataset> => {
+    const notes = await Promise.all(service.list().map(async (note) => buildStatsNote(note, await service.readContent(note.id))))
+    return { notes, generatedAt: Date.now() }
+  }
+
+  /** One period of notes for the language model: counts are exact, the model explains them. */
+  const runInsight = async (granularity: StatsGranularity, start: number, signal: AbortSignal) => {
+    const now = Date.now()
+    const end = periodEnd(start, granularity)
+    const records = new Map(service.list().map((note) => [note.id, note]))
+    const { notes } = await statsDataset()
+    const alive = notes.filter((note) => note.createdAt < Math.min(end, now) && (note.endedAt === null || note.endedAt >= start))
+    const inputs = pickInsightNotes(alive.map((note) => ({ note, preview: records.get(note.id)?.preview ?? '' })), start, end)
+    return ai.analyze({ granularity, start, summary: summarizePeriod(notes, start, granularity, now), notes: inputs, now }, signal)
   }
 
   const applyLaunchAtLogin = (enabled: boolean): void => {
@@ -112,8 +147,8 @@ async function main(): Promise<void> {
     return next
   }
 
-  const openManager = () => {
-    openManagerWindow(preload)
+  const openManager = (page?: ManagerPage) => {
+    openManagerWindow(preload, page)
   }
 
   const flushEverything = async () => {
@@ -140,6 +175,7 @@ async function main(): Promise<void> {
   }
   service.on('change', notifyManager)
   service.on('settings', notifyManager)
+  ai.settings.onChange(() => getManagerWindow()?.webContents.send(IPC.MANAGER_AI_CHANGED))
 
   registerIpc({
     service,
@@ -147,9 +183,13 @@ async function main(): Promise<void> {
     isManager: isManagerWebContents,
     createNote,
     completeNote,
+    abandonNote,
     finishTear,
     setSettings,
     openManager,
+    ai,
+    statsDataset,
+    runInsight,
     managerSnapshot: snapshot,
     openDataDir: async () => {
       await shell.openPath(service.paths.root)
@@ -162,7 +202,7 @@ async function main(): Promise<void> {
   const trayActions: TrayActions = {
     newNote: () => void createNote({ focus: true }),
     showAll: () => windows.showAll(),
-    openManager,
+    openManager: () => openManager(),
     toggleLaunchAtLogin: () => {
       setSettings({ launchAtLogin: !service.settings.launchAtLogin })
     },
@@ -170,8 +210,12 @@ async function main(): Promise<void> {
     updateState: getUpdateState,
     installUpdate: () => installUpdate(flushEverything),
     quit: () => app.quit(),
+    noteCounts: () => {
+      const onDesk = service.list().filter((note) => noteState(note) === 'active')
+      return { notes: onDesk.length, doing: onDesk.filter(isInProgress).length }
+    },
   }
-  createTray(trayActions)
+  createTray(trayActions, { preload, log })
   onUpdateState((state) => {
     refreshTrayMenu(trayActions)
     getManagerWindow()?.webContents.send(IPC.MANAGER_UPDATE_STATE, state)
@@ -251,7 +295,7 @@ async function main(): Promise<void> {
 
   if (process.env.LAVANOTES_SMOKE === '1') {
     const { runSmoke } = await import('./smoke')
-    await runSmoke({ service, windows, createNote, completeNote })
+    await runSmoke({ service, windows, createNote, completeNote, abandonNote, statsDataset, ai, runInsight })
     return
   }
 

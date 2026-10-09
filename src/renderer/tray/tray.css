@@ -1,0 +1,183 @@
+/*
+ * The window is transparent and larger than the card by --shadow on every side
+ * (TRAY_SHADOW in src/main/tray-menu.ts) so the shadow has room.
+ */
+:root {
+  --shadow: 14px;
+  --card: #fffcf4;
+  --ink: #33302a;
+  --muted: rgba(51, 48, 42, 0.5);
+  --line: rgba(74, 62, 40, 0.12);
+  --hover: rgba(74, 62, 40, 0.075);
+  --press: rgba(74, 62, 40, 0.12);
+  --accent: #c2552f;
+  --doing: #b5621b;
+  --switch-on: #5f9472;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --card: #2c2a26;
+    --ink: #eee7da;
+    --muted: rgba(238, 231, 218, 0.5);
+    --line: rgba(238, 231, 218, 0.1);
+    --hover: rgba(238, 231, 218, 0.08);
+    --press: rgba(238, 231, 218, 0.13);
+    --accent: #ec8a62;
+    --doing: #e09a52;
+    --switch-on: #7fb291;
+    color-scheme: dark;
+  }
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  padding: var(--shadow);
+  overflow: hidden;
+  font-family: system-ui, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+.tray {
+  width: 236px;
+  box-sizing: border-box;
+  padding: 4px 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--card);
+  box-shadow:
+    0 1px 2px rgba(36, 29, 16, 0.08),
+    0 8px 24px rgba(36, 29, 16, 0.2);
+}
+
+/* ---- header ---- */
+
+.tray__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px 9px;
+}
+.tray__mark {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  border-radius: 2px 2px 4px 2px;
+  background: linear-gradient(180deg, #fff3a8, #f2d25d);
+  box-shadow: 1.5px 2px 0 rgba(194, 85, 47, 0.75);
+  transform: rotate(-5deg);
+}
+.tray__head strong { font-size: 12.5px; font-weight: 650; letter-spacing: 0.01em; }
+.tray__summary {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.tray__summary em {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--doing);
+  font-style: normal;
+  font-weight: 600;
+}
+.tray__summary em i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: tray-breathe 2.6s ease-in-out infinite;
+}
+
+/* ---- items ---- */
+
+.tray__group { display: flex; flex-direction: column; padding: 0 5px; }
+
+.tray hr {
+  height: 1px;
+  margin: 4px 12px;
+  border: 0;
+  background: var(--line);
+}
+
+.tray__item {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--ink);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  outline: none;
+  transition: background-color 90ms ease;
+}
+.tray__item:hover,
+.tray__item:focus-visible { background: var(--hover); }
+.tray__item:active { background: var(--press); }
+
+.tray__icon {
+  width: 18px;
+  display: inline-flex;
+  justify-content: center;
+  flex: 0 0 auto;
+  opacity: 0.72;
+}
+.tray__label { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tray__item kbd { color: var(--muted); font: inherit; font-size: 11px; }
+.tray__item[data-tone="accent"] { color: var(--accent); font-weight: 600; }
+.tray__item[data-tone="accent"] .tray__icon { opacity: 1; }
+
+/* ---- switch ---- */
+
+.tray__switch {
+  position: relative;
+  width: 28px;
+  height: 16px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--ink), transparent 55%);
+  border-radius: 99px;
+  transition: background-color 180ms ease, border-color 180ms ease;
+}
+.tray__switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink), transparent 35%);
+  transition: transform 200ms cubic-bezier(0.3, 1.3, 0.5, 1), background-color 180ms ease;
+}
+.tray__switch[data-on="true"] { border-color: var(--switch-on); background: var(--switch-on); }
+.tray__switch[data-on="true"] i { background: #fff; transform: translateX(12px); }
+
+@keyframes tray-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.65); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tray__summary em i { animation: none; }
+}

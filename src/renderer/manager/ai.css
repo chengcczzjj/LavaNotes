@@ -1,0 +1,157 @@
+/* AI model page: LavaTranslate's service settings in the manager's paper style. */
+
+.ai-page { gap: 12px; max-width: 860px; }
+.ai-intro h2 { margin: 0 0 4px; font-size: 18px; }
+.ai-intro .hint { line-height: 1.55; }
+
+.input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: none;
+  background: #fffdf7;
+}
+.input:focus { border-color: rgba(42, 120, 214, 0.55); box-shadow: 0 0 0 3px rgba(42, 120, 214, 0.12); }
+.input.mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+.input.sel { height: 30px; padding: 0 6px; }
+
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+}
+.status-bar .dot { width: 10px; height: 10px; flex: 0 0 auto; border-radius: 50%; background: #d03b3b; box-shadow: 0 0 0 3px rgba(208, 59, 59, 0.14); }
+.status-bar .dot[data-ok="true"] { background: #0ca30c; box-shadow: 0 0 0 3px rgba(12, 163, 12, 0.14); }
+.status-text { min-width: 0; flex: 1; overflow-wrap: anywhere; font-weight: 600; }
+.test-result { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 9px; background: rgba(12, 163, 12, 0.08); }
+.test-result[data-state="fail"] { color: var(--danger); background: rgba(166, 68, 57, 0.08); }
+
+.ai-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.ai-card.stack { flex-direction: column; align-items: stretch; }
+.ai-card[data-current="true"] { border-color: rgba(16, 163, 127, 0.45); }
+.ai-card__text { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.ai-card__title { display: inline-flex; align-items: center; gap: 8px; font-weight: 650; }
+.ai-card__desc { color: var(--muted); line-height: 1.5; }
+.row-gap { display: inline-flex; align-items: center; gap: 8px; }
+
+.prov-mark {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: 7px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.prov-mark[data-size="sm"] { width: 18px; height: 18px; border-radius: 5px; font-size: 10px; }
+.prov-mark[data-size="lg"] { width: 36px; height: 36px; border-radius: 10px; font-size: 15px; }
+
+.tag { padding: 1px 6px; border-radius: 99px; background: rgba(74, 62, 40, 0.08); color: var(--muted); font-size: 10.5px; font-weight: 600; }
+.tag.rec { color: #0d6b4f; background: rgba(27, 175, 122, 0.14); }
+.tag.fast { color: #1c5cab; background: rgba(42, 120, 214, 0.12); }
+.tag.free { color: #0d6b4f; background: rgba(27, 175, 122, 0.12); }
+.tag.cn { color: #8a4a12; background: rgba(237, 161, 0, 0.14); }
+.tag.proxy { color: #8f2f2f; background: rgba(227, 73, 72, 0.1); }
+.tag.agg { color: #4a3aa7; background: rgba(74, 58, 167, 0.1); }
+
+.ai-fields { display: flex; flex-direction: column; gap: 9px; }
+.key-current { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; font-size: 12.5px; }
+.key-saved { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 99px; color: #0d6b4f; background: rgba(27, 175, 122, 0.12); font-family: "Cascadia Code", Consolas, monospace; font-size: 11.5px; }
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field-label { display: inline-flex; align-items: baseline; gap: 8px; font-size: 12px; font-weight: 600; }
+.field-label .muted { font-weight: 400; }
+button.link.left { align-self: flex-start; padding-left: 0; }
+button.link.inline { padding: 0 4px; }
+.detect-ok { display: inline-flex; align-items: center; gap: 6px; color: #0d6b4f; font-size: 12.5px; }
+.detect-ask { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12.5px; }
+.ai-actions { display: flex; align-items: center; gap: 8px; }
+.import { position: relative; }
+.chev { transition: transform 150ms ease; }
+.chev.up { transform: rotate(180deg); }
+.import-pop {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fffdf7;
+  box-shadow: 0 10px 28px rgba(49, 39, 19, 0.16);
+}
+.pop-label { padding: 2px 6px 4px; color: var(--muted); font-size: 11px; }
+button.import-item { justify-content: space-between; border-color: transparent; background: transparent; }
+button.import-item:hover:not(:disabled) { background: rgba(74, 62, 40, 0.06); }
+
+.ai-note { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.ai-note.err { color: var(--danger); }
+
+.saved { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.saved-label { color: var(--muted); font-size: 12px; }
+button.saved-chip { min-height: 28px; gap: 6px; padding: 0 9px; border-radius: 99px; font-size: 12px; }
+button.saved-chip[data-current="true"] { border-color: rgba(16, 163, 127, 0.55); background: #fff; font-weight: 600; }
+
+.ai-h3 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; font-size: 14px; }
+.ai-h3 .muted { font-weight: 400; font-size: 12px; }
+.ai-search { height: 28px; display: inline-flex; align-items: center; gap: 5px; margin-left: auto; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: #fffdf7; }
+.ai-search input { width: 150px; border: 0; outline: 0; background: transparent; font-size: 12px; }
+
+.empty-models { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 26px; border: 1px dashed var(--line); border-radius: 11px; color: var(--muted); }
+
+.price-list { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.price-head, .price-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 190px 110px; align-items: center; gap: 8px; padding: 0 12px; }
+.price-head { height: 30px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.price-body { max-height: 340px; overflow: auto; }
+button.price-row {
+  width: 100%;
+  min-height: 34px;
+  border: 0;
+  border-bottom: 1px solid rgba(74, 62, 40, 0.06);
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+}
+button.price-row:hover { background: rgba(74, 62, 40, 0.04); }
+button.price-row[data-current="true"] { background: rgba(27, 175, 122, 0.07); }
+.price-head .r, .price-row .r { text-align: right; font-variant-numeric: tabular-nums; }
+.radio { width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; border: 1.5px solid var(--chart-axis); border-radius: 50%; }
+.radio-dot { width: 7px; height: 7px; border-radius: 50%; background: #10a37f; }
+.pm-name { min-width: 0; display: inline-flex; align-items: center; gap: 6px; }
+.pm-id { overflow: hidden; font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.pm-io, .pm-call { font-size: 12px; }
+.empty-row { padding: 14px; color: var(--muted); text-align: center; }
+
+.guide-list { display: flex; flex-direction: column; gap: 6px; }
+.guide-row { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+button.guide-row__head { width: 100%; min-height: 42px; justify-content: flex-start; gap: 10px; border: 0; border-radius: 0; background: transparent; text-align: left; }
+.gr-name { font-weight: 650; }
+.gr-blurb { min-width: 0; flex: 1; overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.guide-tags { display: inline-flex; gap: 4px; }
+.guide-row[data-open="true"] .chev { transform: rotate(180deg); }
+.guide-body { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px 14px 14px 50px; }
+.guide-steps { display: flex; flex-direction: column; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.guide-steps li { display: flex; align-items: center; gap: 8px; }
+.step-n { width: 18px; height: 18px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; color: #fff; background: var(--accent); font-size: 11px; font-weight: 700; }
+.guide-tip { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+.setting select.input { min-width: 140px; }

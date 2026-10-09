@@ -82,6 +82,17 @@ test('a finished note is torn off into the archive and can be put back', async (
   assert.equal(service.reopen(note.id).visible, true, 'putting back a note that is not archived changes nothing')
 })
 
+test('a note in progress keeps its start when torn off and starts fresh when put back', async (t) => {
+  const dir = await tempDir(t)
+  const service = new NotesService(dir)
+  await service.load()
+  const note = service.create({ bounds, text: '写方案' })
+  const started = service.patch(note.id, { inProgress: true })
+  assert.ok(started.startedAt)
+  assert.equal(service.archive(note.id).startedAt, started.startedAt)
+  assert.equal(service.reopen(note.id).startedAt, undefined)
+})
+
 test('new notes take the tilt sequence in turn, also after a restart', async (t) => {
   const dir = await tempDir(t)
   const service = new NotesService(dir)
@@ -127,4 +138,38 @@ test('change events tell windows what to refresh, bounds updates stay silent', a
   service.setBounds(note.id, { ...bounds, x: 400 })
   service.patch(note.id, { color: 'rose' })
   assert.deepEqual(events, [['created', note.id, false], ['updated', note.id, true], ['updated', note.id, false]])
+})
+
+test('an abandoned note is hidden but kept, and can be put back', async (t) => {
+  const dir = await tempDir(t)
+  const service = new NotesService(dir)
+  await service.load()
+  const note = service.create({ bounds, text: '学吉他' })
+  const abandoned = service.abandon(note.id)
+  assert.equal(abandoned.visible, false)
+  assert.ok(abandoned.abandonedAt)
+  assert.equal(abandoned.archivedAt, undefined)
+  assert.equal(service.archive(note.id).archivedAt, undefined, 'an abandoned note is not also torn off')
+  assert.equal(service.setVisible(note.id, true).visible, false, 'abandoned notes stay hidden until put back')
+  await service.flush()
+
+  const restarted = new NotesService(dir)
+  await restarted.load()
+  assert.equal(restarted.get(note.id).abandonedAt, abandoned.abandonedAt, 'the outcome survives a restart')
+  restarted.reopen(note.id)
+  assert.equal(restarted.get(note.id).visible, true)
+  assert.equal(restarted.get(note.id).abandonedAt, undefined)
+})
+
+test('clearing abandoned notes leaves torn-off ones alone', async (t) => {
+  const dir = await tempDir(t)
+  const service = new NotesService(dir)
+  await service.load()
+  const torn = service.create({ bounds, text: 'torn' })
+  const dropped = service.create({ bounds, text: 'dropped' })
+  service.archive(torn.id)
+  service.abandon(dropped.id)
+  assert.equal(await service.clearAbandoned(), 1)
+  assert.ok(service.get(torn.id))
+  assert.equal(service.get(dropped.id), undefined)
 })
