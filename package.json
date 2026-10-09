@@ -1,7 +1,7 @@
 {
   "name": "lavanotes",
   "productName": "LavaNotes",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "description": "透明纸感桌面便签：错落倾斜的纸张、纸胶带、图片表格，完成就撕下",
   "main": "./out/main/index.js",
   "author": "chengcczzjj",
