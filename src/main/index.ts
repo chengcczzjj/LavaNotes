@@ -175,7 +175,11 @@ async function main(): Promise<void> {
   }
   service.on('change', notifyManager)
   service.on('settings', notifyManager)
-  ai.settings.onChange(() => getManagerWindow()?.webContents.send(IPC.MANAGER_AI_CHANGED))
+  ai.settings.onChange(() => {
+    getManagerWindow()?.webContents.send(IPC.MANAGER_AI_CHANGED)
+    // An open translation that was waiting for a model tries again.
+    windows.broadcast(IPC.NOTE_AI_CHANGED)
+  })
 
   registerIpc({
     service,

@@ -543,9 +543,14 @@ export function AiPage() {
       </div>
 
       <ChatGPTCard settings={settings} update={update} />
-      <KeyCard key={settings.provider} settings={settings} update={update} />
+      {/*
+        Keyed by provider so each starts fresh when the provider changes. The keys must
+        differ between the two: siblings sharing a key made React leave stale copies of
+        the card behind every time the provider changed.
+      */}
+      <KeyCard key={`key:${settings.provider}`} settings={settings} update={update} />
       <SavedServices settings={settings} update={update} />
-      <ModelList key={settings.provider} settings={settings} update={update} />
+      <ModelList key={`models:${settings.provider}`} settings={settings} update={update} />
       <KeyGuides />
     </section>
   )

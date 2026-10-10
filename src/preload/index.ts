@@ -52,6 +52,7 @@ if (role === 'note') {
     translate: (requestId, request) => ipcRenderer.invoke(IPC.NOTE_TRANSLATE, requestId, request),
     cancelTranslate: (requestId) => ipcRenderer.send(IPC.NOTE_TRANSLATE_CANCEL, requestId),
     onTranslateEvent: (listener) => subscribe<[number, TranslateEvent]>(IPC.NOTE_TRANSLATE_EVENT, listener),
+    onAiChanged: (listener) => subscribe(IPC.NOTE_AI_CHANGED, listener),
     onUpdated: (listener) => subscribe<[NoteRecord]>(IPC.NOTE_UPDATED, listener),
     onPlayTear: (listener) => subscribe<[LeaveKind]>(IPC.NOTE_PLAY_TEAR, listener),
     onFocusEditor: (listener) => subscribe(IPC.NOTE_FOCUS_EDITOR, listener),

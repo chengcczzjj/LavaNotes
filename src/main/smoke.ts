@@ -282,16 +282,15 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
     const fAbandoned = Boolean(f) && await waitFor(() => service.get(f!.id)?.abandonedAt !== undefined, 4000)
     check('abandoning from the main process works too', fAbandoned)
 
-    // The model pipeline end to end, against a local OpenAI-compatible stand-in.
+    // The model pipeline end to end, against a local OpenAI-compatible stand-in. Translation is
+    // opened before any model is set up, the way a first-time user meets it: the panel asks for
+    // a model, then translates by itself once one has been configured.
     const mock = await startMockModelServer()
     try {
-      ai.update({ provider: 'custom', providers: { custom: { key: 'smoke-key', baseUrl: mock.baseUrl, model: 'mock-model' } } })
-      check('a custom service with a model is ready', ai.status().ok, ai.status())
-      const models = await ai.listModels('custom')
-      check('the model list comes from the service', models.ok && models.models.some((model) => model.id === 'mock-model'), models)
       const g = await createNote({ text: '早上好\n明天开会', focus: false })
       const gReady = Boolean(g) && await waitFor(() => rendered(g!.id))
       const winG = g ? windows.windowFor(g.id) : undefined
+      let waitingForModel: unknown = ''
       if (g && gReady && winG) {
         winG.show()
         winG.focus()
@@ -301,8 +300,16 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
         await waitFor(() => evalIn(g.id, `(() => { const button = document.querySelector('.note-toolbar__more-button'); if (!button) return false; button.click(); return true })()`), 3000)
         await waitFor(() => evalIn(g.id, `Boolean(document.querySelector('.note-toolbar__translate'))`), 3000)
         await evalIn(g.id, `document.querySelector('.note-toolbar__translate').click()`)
+        waitingForModel = await waitFor(() => evalIn(g.id, `document.querySelector('.note-translate__message')?.innerText ?? ''`), 5000)
+      }
+      ai.update({ provider: 'custom', providers: { custom: { key: 'smoke-key', baseUrl: mock.baseUrl, model: 'mock-model' } } })
+      check('a custom service with a model is ready', ai.status().ok, ai.status())
+      const models = await ai.listModels('custom')
+      check('the model list comes from the service', models.ok && models.models.some((model) => model.id === 'mock-model'), models)
+      if (g && gReady && winG) {
         const shown = await waitFor(() => evalIn(g.id, `(() => { const body = document.querySelector('.note-translate__body')?.innerText ?? ''; const ready = !document.querySelector('.note-translate__actions button').disabled; return ready && body.includes('[EN] 明天开会') ? body : '' })()`), 8000)
         check('a note is translated segment by segment', String(shown).includes('[EN] 早上好'), shown)
+        check('a translation waiting for a model runs by itself once one is set up', Boolean(waitingForModel) && String(shown).includes('[EN]'), { waitingForModel, shown })
         await shot('note-translated', winG)
         await evalIn(g.id, `document.querySelector('.note-translate__actions button').click()`)
         const replaced = await waitFor(async () => JSON.stringify(await service.readContent(g.id)).includes('[EN] 早上好'), 4000)
@@ -369,6 +376,17 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
     manager.webContents.send(IPC.MANAGER_NAVIGATE, 'ai')
     const aiReady = await waitFor(() => inManager(`Boolean(document.querySelector('.ai-page .status-bar')) && document.querySelectorAll('.ai-page .guide-row').length >= 9`), 8000)
     check('the AI 配置 page lists providers', aiReady)
+    // Changing the provider back and forth leaves exactly one key card and one model list.
+    for (const provider of ['gemini', 'custom', 'gemini', 'custom'] as const) {
+      ai.update({ provider })
+      await sleep(250)
+    }
+    await sleep(600)
+    const aiCards = await inManager(`(() => ({
+      keys: [...document.querySelectorAll('.ai-page .ai-card__title')].filter((title) => title.textContent === 'API Key').length,
+      models: [...document.querySelectorAll('.ai-page .ai-h3')].filter((title) => title.textContent.startsWith('模型')).length,
+    }))()`) as { keys: number; models: number } | null
+    check('switching providers leaves one key card and one model list', aiCards?.keys === 1 && aiCards.models === 1, aiCards)
 
     const shots = process.env.LAVANOTES_SMOKE_SHOTS
     if (shots) {

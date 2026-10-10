@@ -55,6 +55,7 @@ export const IPC = {
   NOTE_FOCUS_EDITOR: 'note:focus-editor',
   NOTE_FLUSH_REQUEST: 'note:flush-request',
   NOTE_TRANSLATE_EVENT: 'note:translate-event',
+  NOTE_AI_CHANGED: 'note:ai-changed',
   // manager window
   MANAGER_SNAPSHOT: 'manager:snapshot',
   MANAGER_CREATE: 'manager:create',
@@ -125,6 +126,8 @@ export interface NoteBridge {
   translate(requestId: number, request: TranslateRequest): Promise<TranslateResult>
   cancelTranslate(requestId: number): void
   onTranslateEvent(listener: (requestId: number, event: TranslateEvent) => void): () => void
+  /** The model settings changed (a key saved, a model chosen). */
+  onAiChanged(listener: () => void): () => void
   onUpdated(listener: (note: NoteRecord) => void): () => void
   onPlayTear(listener: (kind: LeaveKind) => void): () => void
   onFocusEditor(listener: () => void): () => void

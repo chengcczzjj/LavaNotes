@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDownToLine, Check, Copy, Languages, Loader2, Replace, Settings2, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ArrowDownToLine, Check, Copy, Languages, Loader2, Replace, RotateCw, Settings2, X } from 'lucide-react'
 import { LANGUAGES } from '@shared/ai'
 import type { TranslateEvent } from '@shared/translate'
 
@@ -29,16 +29,34 @@ export function TranslatePanel({ source, plainText, onApply, onClose }: Translat
   const [needsSetup, setNeedsSetup] = useState(false)
   const [meta, setMeta] = useState<{ targetName: string; model: string } | null>(null)
   const [copied, setCopied] = useState(false)
+  /** Bumped to run the same translation again. */
+  const [attempt, setAttempt] = useState(0)
   const requestRef = useRef(0)
 
-  // A new source remounts the panel (keyed by the caller); a new target restarts here.
-  const changeTarget = (value: string) => {
-    setTarget(value)
+  const restart = useCallback(() => {
     setStatus('running')
     setResults(new Map())
     setMessage(null)
     setNeedsSetup(false)
+  }, [])
+
+  // A new source remounts the panel (keyed by the caller); a new target or a retry restarts here.
+  const changeTarget = (value: string) => {
+    setTarget(value)
+    restart()
   }
+
+  const retry = useCallback(() => {
+    restart()
+    setAttempt((count) => count + 1)
+  }, [restart])
+
+  // A panel left waiting for a model (or with a rejected key) tries again once the settings
+  // change, instead of keeping the old message after the model has been set up.
+  useEffect(() => {
+    if (status !== 'error') return
+    return window.lavaNote.onAiChanged(retry)
+  }, [status, retry])
 
   useEffect(() => {
     const requestId = nextRequestId++
@@ -62,9 +80,11 @@ export function TranslatePanel({ source, plainText, onApply, onClose }: Translat
       off()
       window.lavaNote.cancelTranslate(requestId)
     }
-  }, [source, target])
+  }, [source, target, attempt])
 
   const complete = status === 'done' && results.size > 0
+  // Segments the model left out keep their original text; say so rather than leave them looking unfinished.
+  const missing = status === 'done' ? source.segments.filter((segment) => !results.has(segment.index)).length : 0
   const rows = useMemo(() => source.segments.map((segment) => ({
     index: segment.index,
     text: results.get(segment.index),
@@ -106,7 +126,7 @@ export function TranslatePanel({ source, plainText, onApply, onClose }: Translat
 
       <div className="note-translate__body" aria-live="polite">
         {rows.map((row) => (
-          <p key={row.index} data-pending={row.text === undefined}>{row.text ?? row.source}</p>
+          <p key={row.index} data-pending={row.text === undefined && status === 'running'}>{row.text ?? row.source}</p>
         ))}
       </div>
 
@@ -116,6 +136,13 @@ export function TranslatePanel({ source, plainText, onApply, onClose }: Translat
           {needsSetup && (
             <button type="button" onClick={() => window.lavaNote.openManager('ai')}><Settings2 size={12} />AI 配置</button>
           )}
+          {status === 'error' && <button type="button" onClick={retry}><RotateCw size={12} />重试</button>}
+        </div>
+      )}
+      {!message && missing > 0 && (
+        <div className="note-translate__message" role="status">
+          <span>有 {missing} 段没有译出，保留原文。</span>
+          <button type="button" onClick={retry}><RotateCw size={12} />重试</button>
         </div>
       )}
 

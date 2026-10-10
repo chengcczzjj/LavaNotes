@@ -181,6 +181,13 @@ export class NoteWindowManager {
     await Promise.all([...this.entries.values()].map((entry) => this.requestFlush(entry)))
   }
 
+  /** Tell every open note something changed that is not about a note, e.g. the model settings. */
+  broadcast(channel: string): void {
+    for (const entry of this.entries.values()) {
+      if (!entry.win.isDestroyed()) entry.win.webContents.send(channel)
+    }
+  }
+
   /** Bring every ordinary note in front of other windows (tray click, second launch). */
   showAll(): void {
     for (const entry of this.entries.values()) {
