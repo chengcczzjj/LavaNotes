@@ -184,7 +184,8 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
       const dStarted = await waitFor(() => service.get(d.id)?.startedAt !== undefined, 3000)
       const dMarked = await waitFor(() => evalIn(d.id, `Boolean(document.querySelector('.note[data-doing="true"] .note__doing-label'))`), 3000)
       check('▷ in the top bar marks the note in progress', dStarted && dMarked, service.get(d.id)?.startedAt)
-      const glowing = await waitFor(() => evalIn(d.id, `getComputedStyle(document.querySelector('.note__glow')).animationName === 'doing-glow'`), 3000)
+      // Shown, not necessarily moving: with reduced motion (CI's Windows runner) the glow stays still.
+      const glowing = await waitFor(() => evalIn(d.id, `Number(getComputedStyle(document.querySelector('.note__glow')).opacity) > 0.3`), 3000)
       const dNote = service.get(d.id)!
       const dMargin = getWindowMargin(dNote.rotation)
       const underPaper = await windows.probeHit(d.id, dMargin + dNote.bounds.width / 2, dMargin + dNote.bounds.height + 14)
@@ -235,7 +236,7 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
         return /"startedAt":\d+/.test(body) && body.includes('"checked":false')
       }, 4000)
       const doingShown = await evalIn(e.id, `Boolean(document.querySelector('.note-editor li[data-checked="false"][data-started-at]'))`)
-      const rowGlows = await evalIn(e.id, `getComputedStyle(document.querySelector('.note-editor li[data-started-at]'), '::before').animationName.includes('doing-row')`)
+      const rowGlows = await evalIn(e.id, `getComputedStyle(document.querySelector('.note-editor li[data-started-at]'), '::before').content !== 'none'`)
       check('right click on a checklist box marks the item in progress, and its row glows', doing && doingShown && rowGlows, { doing, doingShown, rowGlows })
       await shot('note-task-doing', winE)
       if (process.env.LAVANOTES_SMOKE_SHOTS) {
