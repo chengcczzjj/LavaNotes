@@ -18,6 +18,8 @@ interface Entry {
   layer: NoteLayer | null
   rotation: number
   intentionalClose: boolean
+  /** Shown again while this window was closing: open a new one when it has closed. */
+  reopen: boolean
   focusEditor: boolean
   drag: { cursor: Electron.Point; window: Electron.Point } | null
   resizeTimer: NodeJS.Timeout | null
@@ -429,6 +431,7 @@ export class NoteWindowManager {
       layer: null,
       rotation: note.rotation,
       intentionalClose: false,
+      reopen: false,
       focusEditor: focus,
       drag: null,
       resizeTimer: null,
@@ -641,7 +644,11 @@ export class NoteWindowManager {
     this.byWebContents.delete(webContentsId)
     this.flushWaiters.get(webContentsId)?.()
     this.updatePinTimer()
-    if (entry.intentionalClose || this.quitting) return
+    if (this.quitting) return
+    if (entry.intentionalClose) {
+      if (entry.reopen && this.options.service.get(entry.id)?.visible) void this.open(entry.id)
+      return
+    }
     // Not closed by us: Explorer took an owned window down, or the system did.
     const note = this.options.service.get(entry.id)
     if (!note?.visible) return
@@ -695,6 +702,12 @@ export class NoteWindowManager {
     if (!entry) {
       // Created notes are opened by whoever created them, with focus if wanted.
       if (kind === 'updated' && !this.opening.has(note.id)) void this.open(note.id)
+      return
+    }
+    if (entry.intentionalClose) {
+      // Put back or shown again while its window is still saving and closing (that takes
+      // up to FLUSH_TIMEOUT_MS): the closing window cannot be reused, so open a new one after.
+      entry.reopen = true
       return
     }
     if (silent || kind === 'content') return

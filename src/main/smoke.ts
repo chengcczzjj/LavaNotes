@@ -149,6 +149,12 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
     const imageLoaded = await waitFor(() => evalIn(b.id, `(() => { const img = document.querySelector('.note-editor img'); return Boolean(img && img.complete && img.naturalWidth === 1) })()`).catch(() => false), 5000)
     check('stored images load through lavanote://', imageLoaded, src)
     check('an image-only note has no text title', service.get(b.id)?.title === '' && service.get(b.id)?.imageCount === 1)
+    // Shown again while its window is still saving and closing (收起 then 显示 at once): it comes back.
+    service.setVisible(b.id, false)
+    service.setVisible(b.id, true)
+    await sleep(900)
+    const bBack = await waitFor(() => rendered(b.id), 5000)
+    check('a note shown again while its window is closing comes back', bBack && service.get(b.id)?.visible === true)
 
     // Layers.
     service.patch(b.id, { layer: 'top' })
@@ -185,7 +191,7 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
       const dMarked = await waitFor(() => evalIn(d.id, `Boolean(document.querySelector('.note[data-doing="true"] .note__doing-label'))`), 3000)
       check('▷ in the top bar marks the note in progress', dStarted && dMarked, service.get(d.id)?.startedAt)
       // Shown, not necessarily moving: with reduced motion (CI's Windows runner) the glow stays still.
-      const glowing = await waitFor(() => evalIn(d.id, `Number(getComputedStyle(document.querySelector('.note__glow')).opacity) > 0.3`), 3000)
+      const glowing = await waitFor(() => evalIn(d.id, `Number(getComputedStyle(document.querySelector('.note__glow')).opacity) > 0.2`), 3000)
       const dNote = service.get(d.id)!
       const dMargin = getWindowMargin(dNote.rotation)
       const underPaper = await windows.probeHit(d.id, dMargin + dNote.bounds.width / 2, dMargin + dNote.bounds.height + 14)

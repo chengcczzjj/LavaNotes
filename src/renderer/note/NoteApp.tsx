@@ -190,6 +190,8 @@ export function NoteApp({ init }: { init: NoteInit }) {
     '--note-rotation': `${note.rotation}deg`,
     '--note-font-size': `${note.fontSize}px`,
     '--note-font-family': FONT_FAMILY_CSS[note.fontFamily],
+    // The edge light turns a square this wide behind the paper; it must cover the corners.
+    '--note-diagonal': `${Math.ceil(Math.hypot(size.width, size.height)) + 40}px`,
   } as CSSProperties
 
   const short = size.height < 170
@@ -214,12 +216,15 @@ export function NoteApp({ init }: { init: NoteInit }) {
         aria-label="便签"
       >
         <div className="note__glow" aria-hidden />
+        <div className="note__flow-glow" aria-hidden />
+        <div className="note__flow" aria-hidden />
         <div className="note__mount" onPointerDown={onDragPointerDown} aria-hidden />
         <div className="note__paper">
           <div className="note__grain" aria-hidden />
           <div className="note__tear-edge" aria-hidden />
           <div className="note__crease" aria-hidden />
           <div className="note__doing-wash" aria-hidden />
+          <div className="note__sheen" aria-hidden />
           <header className="note__topbar" onPointerDown={onDragPointerDown}>
             <button type="button" className="note__icon" title="新建便签 Ctrl+N" aria-label="新建便签" onClick={() => window.lavaNote.newNote()}>
               <Plus size={16} strokeWidth={1.9} />

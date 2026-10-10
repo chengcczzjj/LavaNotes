@@ -8,8 +8,8 @@ export interface Rect {
   height: number
 }
 
-/** Room around the paper for tape/pin overhang and the drop shadow. */
-export const DECORATION_PAD = 30
+/** Room around the paper for the tape, the drop shadow and the light of a note in progress. */
+export const DECORATION_PAD = 40
 /** Part of a note that must stay on some screen so it can be grabbed again. */
 export const MIN_VISIBLE_EDGE = 56
 

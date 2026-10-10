@@ -226,60 +226,101 @@ select {
 }
 .note__doing-label span { color: color-mix(in srgb, var(--doing), var(--ink) 40%); font-weight: 500; }
 
-/* A soft light drifts along the bar's lower edge, then rests for a moment. */
-.note__topbar::after {
-  position: absolute;
-  bottom: -1px;
-  left: 0;
-  width: 38%;
-  height: 2px;
-  content: "";
-  border-radius: 2px;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--doing), transparent 20%) 55%, transparent);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-100%);
-}
-.note[data-doing="true"] .note__topbar { border-bottom-color: color-mix(in srgb, var(--doing), transparent 74%); }
-.note[data-doing="true"] .note__topbar::after { opacity: 1; animation: doing-flow 4.2s cubic-bezier(0.45, 0.05, 0.35, 1) infinite; }
+.note[data-doing="true"] .note__topbar { border-bottom-color: color-mix(in srgb, var(--doing), transparent 70%); }
 
 /*
- * The whole note at work: a warm halo hugs the lower half of the paper and
- * spills into the transparent margin (which stays click-through: pointer-events
- * none keeps it out of the hit test), and light rises into the paper from its
- * bottom edge; both breathe slowly. The margin is at least 30px even at the
- * corners of the largest tilted paper, and the blur ends inside it.
+ * The whole note at work, in the paper's own colour:
+ * - a halo round the paper, strongest at the bottom, breathing deeply;
+ * - light running round the edge, two bright arcs chasing each other with a
+ *   blurred glow following them;
+ * - inside the paper, light rising from the bottom edge with the breath, and a
+ *   sheen sweeping across now and then.
+ * All of it has pointer-events none, so the transparent margin stays
+ * click-through, and every blur ends within DECORATION_PAD (40px), which the
+ * margin keeps even at the corners of the largest tilted paper. Only transform
+ * and opacity animate, plus the blur over the moving edge light.
  */
-.note__glow {
+.note__glow,
+.note__flow,
+.note__flow-glow,
+.note__doing-wash,
+.note__sheen {
   position: absolute;
-  z-index: -1;
-  top: 42%;
-  right: -5px;
-  bottom: -8px;
-  left: -5px;
-  border-radius: 12px;
-  background: linear-gradient(to bottom, color-mix(in srgb, var(--doing-glow), transparent 60%), var(--doing-glow) 70%);
-  filter: blur(11px);
   opacity: 0;
   pointer-events: none;
-  transform-origin: 50% 100%;
   transition: opacity 600ms ease;
 }
-.note__doing-wash {
+
+.note__glow {
+  z-index: -1;
+  top: 10%;
+  right: -7px;
+  bottom: -11px;
+  left: -7px;
+  border-radius: 16px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--doing-glow), transparent 78%), color-mix(in srgb, var(--doing-glow), transparent 30%) 60%, var(--doing-glow));
+  filter: blur(12px);
+  transform-origin: 50% 100%;
+}
+
+.note__flow,
+.note__flow-glow {
+  z-index: -1;
+  overflow: hidden;
+}
+.note__flow { inset: -3px; border-radius: 7px; }
+.note__flow-glow { inset: -9px; border-radius: 14px; filter: blur(7px); }
+/* A square as wide as the paper's diagonal (--note-diagonal), turning behind it; only the rim shows. */
+.note__flow::before,
+.note__flow-glow::before {
   position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--note-diagonal);
+  height: var(--note-diagonal);
+  margin: calc(var(--note-diagonal) / -2) 0 0 calc(var(--note-diagonal) / -2);
+  content: "";
+  background: conic-gradient(
+    transparent 0deg 110deg,
+    color-mix(in srgb, var(--doing-glow), transparent 60%) 140deg,
+    color-mix(in srgb, var(--doing-glow), #fff 45%) 172deg,
+    transparent 180deg 290deg,
+    color-mix(in srgb, var(--doing-glow), transparent 60%) 320deg,
+    color-mix(in srgb, var(--doing-glow), #fff 45%) 352deg,
+    transparent 360deg
+  );
+}
+
+.note__doing-wash {
   z-index: 1;
   right: 0;
   bottom: 0;
   left: 0;
-  height: 42%;
-  background: linear-gradient(to top, color-mix(in srgb, var(--doing-glow), transparent 48%), color-mix(in srgb, var(--doing-glow), transparent 84%) 40%, transparent);
-  opacity: 0;
-  pointer-events: none;
+  height: 58%;
+  background: linear-gradient(to top, color-mix(in srgb, var(--doing-glow), transparent 32%), color-mix(in srgb, var(--doing-glow), transparent 80%) 45%, transparent);
   transform-origin: 50% 100%;
-  transition: opacity 600ms ease;
 }
-.note[data-doing="true"] .note__glow { opacity: 1; animation: doing-glow 3.4s ease-in-out infinite; }
-/* A lighter drop shadow, so the warm light is not darkened by it. */
+.note__sheen {
+  z-index: 1;
+  top: -30%;
+  bottom: -30%;
+  left: 0;
+  width: 34%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45) 50%, transparent);
+  transform: translateX(-150%) skewX(-18deg);
+}
+
+.note[data-doing="true"] .note__glow,
+.note[data-doing="true"] .note__flow,
+.note[data-doing="true"] .note__flow-glow,
+.note[data-doing="true"] .note__doing-wash,
+.note[data-doing="true"] .note__sheen { opacity: 1; }
+.note[data-doing="true"] .note__glow { animation: doing-glow 2.8s ease-in-out infinite; }
+.note[data-doing="true"] .note__doing-wash { animation: doing-wash 2.8s ease-in-out infinite; }
+.note[data-doing="true"] .note__flow::before,
+.note[data-doing="true"] .note__flow-glow::before { animation: doing-orbit 4.8s linear infinite; }
+.note[data-doing="true"] .note__sheen { animation: doing-sheen 5.6s cubic-bezier(0.45, 0.05, 0.35, 1) 1s infinite; }
+/* A lighter drop shadow, so the light is not darkened by it. */
 .note[data-doing="true"] .note__paper {
   box-shadow:
     1px 2px 1px rgba(49, 39, 19, 0.1),
@@ -287,30 +328,32 @@ select {
     inset 0 1px 0 rgba(255, 255, 255, 0.46),
     inset 0 -1px 0 rgba(86, 59, 15, 0.08);
 }
-.note[data-doing="true"] .note__doing-wash { opacity: 1; animation: doing-wash 3.4s ease-in-out infinite; }
 .note[data-leaving] .note__glow,
-.note[data-leaving] .note__doing-wash { opacity: 0; animation: none; }
+.note[data-leaving] .note__flow,
+.note[data-leaving] .note__flow-glow,
+.note[data-leaving] .note__doing-wash,
+.note[data-leaving] .note__sheen { opacity: 0; animation: none; }
 
 @keyframes doing-glow {
-  0%, 100% { opacity: 0.45; transform: scaleY(0.94); }
-  50% { opacity: 0.95; transform: none; }
+  0%, 100% { opacity: 0.3; transform: scale(0.97, 0.9); }
+  50% { opacity: 1; transform: scale(1.02, 1.04); }
 }
 @keyframes doing-wash {
-  0%, 100% { opacity: 0.5; transform: scaleY(0.75); }
+  0%, 100% { opacity: 0.35; transform: scaleY(0.7); }
   50% { opacity: 1; transform: none; }
+}
+@keyframes doing-sheen {
+  0% { transform: translateX(-150%) skewX(-18deg); }
+  45%, 100% { transform: translateX(400%) skewX(-18deg); }
 }
 @keyframes doing-orbit { to { transform: rotate(360deg); } }
 @keyframes doing-breathe {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(0.6); }
+  0%, 100% { opacity: 1; transform: scale(1.05); }
+  50% { opacity: 0.4; transform: scale(0.5); }
 }
 @keyframes doing-pop {
   from { opacity: 0; transform: scale(0.2); }
   to { opacity: 1; transform: scale(1); }
-}
-@keyframes doing-flow {
-  0% { transform: translateX(-100%); }
-  68%, 100% { transform: translateX(265%); }
 }
 @keyframes doing-fade-in {
   from { opacity: 0; transform: translateX(-3px); }
@@ -451,26 +494,49 @@ select {
   animation: doing-pop 260ms ease-out, doing-breathe 2.6s ease-in-out 260ms infinite;
 }
 
-/* The whole row of an item in progress glows: a warm band, brightest at the box, breathing with its dot. */
+/*
+ * The whole row of an item in progress: a band that breathes, a light that
+ * sweeps along it, and ripples from its box. The row reaches a little past its
+ * text (negative margins, matching padding), so nothing moves when it starts.
+ */
 .note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at] {
   position: relative;
   isolation: isolate;
+  overflow: hidden;
+  margin: -0.1em -0.45em;
+  padding: 0.1em 0.45em;
+  border-radius: 0.45em;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--doing-glow), transparent 55%);
 }
 .note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at]::before {
   position: absolute;
   z-index: -1;
-  inset: 0.04em -0.45em;
+  inset: 0;
   content: "";
-  border-radius: 0.45em;
-  background: linear-gradient(90deg, color-mix(in srgb, var(--doing-glow), transparent 66%), color-mix(in srgb, var(--doing-glow), transparent 84%) 55%, color-mix(in srgb, var(--doing-glow), transparent 94%));
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--doing), transparent 80%),
-    0 0 12px color-mix(in srgb, var(--doing-glow), transparent 62%);
+  border-radius: inherit;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--doing-glow), transparent 48%), color-mix(in srgb, var(--doing-glow), transparent 76%) 60%, color-mix(in srgb, var(--doing-glow), transparent 88%));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--doing), transparent 68%);
   pointer-events: none;
-  animation: doing-row-in 320ms ease-out, doing-row 2.6s ease-in-out 320ms infinite;
+  animation: doing-row-in 320ms ease-out, doing-row 2.8s ease-in-out 320ms infinite;
+}
+.note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at]::after {
+  position: absolute;
+  z-index: -1;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  content: "";
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.6) 50%, transparent);
+  pointer-events: none;
+  transform: translateX(-110%);
+  animation: doing-row-sweep 2.4s cubic-bezier(0.45, 0.05, 0.35, 1) 400ms infinite;
+}
+.note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at] > label::before {
+  animation: doing-ping 2.8s ease-out infinite;
 }
 .note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at] > div > p:first-child {
-  color: color-mix(in srgb, var(--doing), var(--ink) 55%);
+  color: color-mix(in srgb, var(--doing), var(--ink) 50%);
 }
 
 @keyframes doing-row-in {
@@ -479,7 +545,15 @@ select {
 }
 @keyframes doing-row {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
+}
+@keyframes doing-row-sweep {
+  0% { transform: translateX(-110%); }
+  70%, 100% { transform: translateX(260%); }
+}
+@keyframes doing-ping {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--doing-glow), transparent 10%); }
+  70%, 100% { box-shadow: 0 0 0 0.35em color-mix(in srgb, var(--doing-glow), transparent 100%); }
 }
 
 /* images */
@@ -876,10 +950,14 @@ select {
 
 @media (prefers-reduced-motion: reduce) {
   .doing-glyph *,
-  .note__topbar::after,
   .note__glow,
   .note__doing-wash,
+  .note__sheen,
+  .note__flow::before,
+  .note__flow-glow::before,
   .note-editor ul[data-type="taskList"] li::before,
+  .note-editor ul[data-type="taskList"] li::after,
+  .note-editor ul[data-type="taskList"] li > label::before,
   .note-editor ul[data-type="taskList"] li > label::after { animation: none !important; }
   .note[data-leaving="crumple"] .note__paper,
   .note[data-leaving="crumple"] .note__crease,
