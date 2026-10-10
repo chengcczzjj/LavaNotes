@@ -205,7 +205,7 @@ button.link.danger { color: var(--danger); }
 }
 .waiting button.waiting__row:hover { border-color: var(--line); background: #fffdf7; }
 .waiting__box { position: relative; width: 12px; height: 12px; flex: 0 0 auto; box-sizing: border-box; border: 1.5px solid var(--chart-axis); border-radius: 3px; }
-/* In progress, as on the note: amber box with a dot. */
+/* In progress, as on the note: a box with a dot in the deep shade of its paper colour. */
 .waiting__box[data-doing="true"] { border-color: var(--doing); background: color-mix(in srgb, var(--doing), transparent 88%); }
 .waiting__box[data-doing="true"]::after { position: absolute; inset: 2px; content: ""; border-radius: 50%; background: var(--doing); }
 .waiting__text { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

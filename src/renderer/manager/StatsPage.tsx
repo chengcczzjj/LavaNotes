@@ -423,7 +423,7 @@ export function StatsPage({ onOpenAi }: { onOpenAi(): void }) {
               <h4>最久没勾的</h4>
               {view.waiting.map((item) => (
                 <button key={`${item.note.id}:${item.task.id}`} type="button" className="waiting__row" onClick={() => void api.focus(item.note.id)}>
-                  <span className="waiting__box" data-doing={item.task.startedAt !== null} title={item.task.startedAt !== null ? '进行中' : undefined} aria-hidden />
+                  <span className="waiting__box" data-doing={item.task.startedAt !== null} data-color={item.task.startedAt !== null ? item.note.color : undefined} title={item.task.startedAt !== null ? '进行中' : undefined} aria-hidden />
                   <span className="waiting__text">{item.task.text}<span className="waiting__note"> · {item.note.title.slice(0, 14) || '（无标题便签）'}</span></span>
                   <span className="waiting__age">{formatDuration(item.ageMs)}</span>
                 </button>

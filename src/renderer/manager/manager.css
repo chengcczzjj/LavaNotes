@@ -7,7 +7,7 @@
   --accent: #c2552f;
   --accent-ink: #fff8ef;
   --danger: #a64439;
-  /* In progress, the same amber as on the notes. */
+  /* In progress where no paper colour applies; cards use their paper's, as the notes do. */
   --doing: #b5621b;
   color-scheme: light;
 }
@@ -106,11 +106,11 @@ main { min-width: 0; overflow: auto; padding: 22px 26px; }
 .search input { min-width: 0; flex: 1; border: 0; outline: 0; background: transparent; }
 
 /* paper colours shared by cards and rows */
-[data-color] { --paper-top: #fff7b7; --paper-bottom: #f5df72; --paper-edge: #cfb951; }
-[data-color="rose"] { --paper-top: #ffd7d1; --paper-bottom: #f4aaa4; --paper-edge: #c87570; }
-[data-color="mint"] { --paper-top: #dff4c9; --paper-bottom: #a9d58f; --paper-edge: #70975e; }
-[data-color="sky"] { --paper-top: #d9f1f4; --paper-bottom: #9fd4dc; --paper-edge: #6196a0; }
-[data-color="lilac"] { --paper-top: #eee2f2; --paper-bottom: #cdb4d8; --paper-edge: #8f73a0; }
+[data-color] { --paper-top: #fff7b7; --paper-bottom: #f5df72; --paper-edge: #cfb951; --doing: #a8650f; }
+[data-color="rose"] { --paper-top: #ffd7d1; --paper-bottom: #f4aaa4; --paper-edge: #c87570; --doing: #b2453b; }
+[data-color="mint"] { --paper-top: #dff4c9; --paper-bottom: #a9d58f; --paper-edge: #70975e; --doing: #3f7f36; }
+[data-color="sky"] { --paper-top: #d9f1f4; --paper-bottom: #9fd4dc; --paper-edge: #6196a0; --doing: #1f7a8f; }
+[data-color="lilac"] { --paper-top: #eee2f2; --paper-bottom: #cdb4d8; --paper-edge: #8f73a0; --doing: #774ba0; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
 

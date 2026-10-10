@@ -19,7 +19,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { MANAGER_PAGES, type ManagerPage, type ManagerSnapshot, type NoteLayer, type NoteRecord, type UpdateState } from '@shared/types'
-import { NOTE_LAYERS, NOTE_LAYER_LABELS, displayTitle, isInProgress, noteState } from '@shared/note-model'
+import { NOTE_LAYERS, NOTE_LAYER_LABELS, displayTitle, formatStart, isInProgress, noteState } from '@shared/note-model'
 import { StatsPage } from './StatsPage'
 import { AiPage } from './AiPage'
 
@@ -112,7 +112,11 @@ function NoteCard({ note }: { note: NoteRecord }) {
         <div className="card__badges">
           {state === 'completed' && <span className="badge badge--state"><Archive size={11} />撕下于 {shortTime(note.archivedAt!)}</span>}
           {state === 'abandoned' && <span className="badge badge--state"><ArchiveX size={11} />废弃于 {shortTime(note.abandonedAt!)}</span>}
-          {isInProgress(note) && <span className="badge badge--doing" title={`${shortTime(note.startedAt!)} 开始`}><i aria-hidden />进行中</span>}
+          {isInProgress(note) && (
+            <span className="badge badge--doing" title={`${formatStart(note.startedAt!, true)} 开始`}>
+              <i aria-hidden />进行中 · {formatStart(note.startedAt!, false)}起
+            </span>
+          )}
           {note.imageCount > 0 && <span className="badge"><ImageIcon size={11} />{note.imageCount}</span>}
           {active && <LayerBadge layer={note.layer} />}
         </div>

@@ -6,7 +6,7 @@ import { periodStart, type StatsDataset, type StatsGranularity } from '@shared/s
 import type { InsightRunResult } from '@shared/insights'
 import type { AiService } from './ai/service'
 import { startMockModelServer } from './smoke-ai'
-import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH } from '@shared/note-model'
+import { NOTE_COLORS, NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH } from '@shared/note-model'
 import { getWindowMargin, windowBoundsForPaper } from '@shared/geometry'
 import type { NotesService } from './notes-service'
 import type { NoteWindowManager } from './note-windows'
@@ -184,7 +184,22 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
       const dStarted = await waitFor(() => service.get(d.id)?.startedAt !== undefined, 3000)
       const dMarked = await waitFor(() => evalIn(d.id, `Boolean(document.querySelector('.note[data-doing="true"] .note__doing-label'))`), 3000)
       check('▷ in the top bar marks the note in progress', dStarted && dMarked, service.get(d.id)?.startedAt)
+      const glowing = await waitFor(() => evalIn(d.id, `getComputedStyle(document.querySelector('.note__glow')).animationName === 'doing-glow'`), 3000)
+      const dNote = service.get(d.id)!
+      const dMargin = getWindowMargin(dNote.rotation)
+      const underPaper = await windows.probeHit(d.id, dMargin + dNote.bounds.width / 2, dMargin + dNote.bounds.height + 14)
+      check('the glow under a note in progress breathes and lets clicks through', glowing && underPaper === false, { glowing, underPaper })
       await shot('note-doing', windows.windowFor(d.id))
+      // The glow takes the paper's colour: one picture per colour, at the bright end of a breath.
+      if (process.env.LAVANOTES_SMOKE_SHOTS) {
+        const original = service.get(d.id)!.color
+        for (const color of NOTE_COLORS) {
+          service.patch(d.id, { color })
+          await sleep(1300)
+          await shot(`note-doing-${color}`, windows.windowFor(d.id))
+        }
+        service.patch(d.id, { color: original })
+      }
       await evalIn(d.id, `document.querySelector('.note__icon--doing').click()`)
       const dStopped = await waitFor(() => service.get(d.id)?.startedAt === undefined, 3000)
       check('clicking ▷ again stops it', dStopped)
@@ -220,8 +235,14 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
         return /"startedAt":\d+/.test(body) && body.includes('"checked":false')
       }, 4000)
       const doingShown = await evalIn(e.id, `Boolean(document.querySelector('.note-editor li[data-checked="false"][data-started-at]'))`)
-      check('right click on a checklist box marks the item in progress', doing && doingShown)
+      const rowGlows = await evalIn(e.id, `getComputedStyle(document.querySelector('.note-editor li[data-started-at]'), '::before').animationName.includes('doing-row')`)
+      check('right click on a checklist box marks the item in progress, and its row glows', doing && doingShown && rowGlows, { doing, doingShown, rowGlows })
       await shot('note-task-doing', winE)
+      if (process.env.LAVANOTES_SMOKE_SHOTS) {
+        service.patch(e.id, { color: 'sky' })
+        await shot('note-task-doing-sky', winE)
+        service.patch(e.id, { color: 'butter' })
+      }
       await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] input[type="checkbox"]').click()`)
       const doneAgain = await waitFor(async () => {
         const body = JSON.stringify(await service.readContent(e.id))

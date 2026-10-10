@@ -8,6 +8,7 @@ import {
   createNoteRecord,
   displayTitle,
   emptyDoc,
+  formatStart,
   isInProgress,
   normalizeDoc,
   normalizeNoteList,
@@ -178,4 +179,12 @@ test('right click on a checklist box: to do and in progress swap, done goes back
   const done = { ...doing, checked: true, checkedAt: 400 }
   assert.deepEqual(toggleTaskDoing(done, 500), { ...done, checked: false, checkedAt: null, startedAt: 200 })
   assert.equal(toggleTaskDoing({ checked: true, checkedAt: 400 }, 500).startedAt, 500)
+})
+
+test('a start is shown as a date and time, with the year only when it is not this year', () => {
+  const now = new Date(2026, 9, 12, 9, 0).getTime()
+  const started = new Date(2026, 9, 9, 8, 5).getTime()
+  assert.equal(formatStart(started, true, now), '10月9日 08:05')
+  assert.equal(formatStart(started, false, now), '10月9日')
+  assert.equal(formatStart(new Date(2025, 11, 30, 23, 59).getTime(), true, now), '2025年12月30日 23:59')
 })

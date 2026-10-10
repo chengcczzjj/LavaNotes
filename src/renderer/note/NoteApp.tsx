@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { Check, Ellipsis, Layers, Pin, Plus } from 'lucide-react'
 import type { LeaveKind, NoteInit, NotePatch, NoteRecord } from '@shared/types'
-import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH, isInProgress } from '@shared/note-model'
+import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, NOTE_MIN_HEIGHT, NOTE_MIN_WIDTH, formatStart, isInProgress } from '@shared/note-model'
 import { getWindowMargin } from '@shared/geometry'
 import { NoteEditor, type NoteEditorHandle } from './NoteEditor'
 import { NoteMenu } from './NoteMenu'
@@ -14,28 +14,6 @@ const FONT_FAMILY_CSS: Record<NoteRecord['fontFamily'], string> = {
   serif: 'Georgia, "Times New Roman", "Songti SC", "SimSun", serif',
   mono: '"Cascadia Code", Consolas, "Microsoft YaHei UI", monospace',
   handwritten: '"Segoe Print", "Comic Sans MS", "KaiTi", cursive',
-}
-
-const MINUTE = 60_000
-
-/** "进行中 · 25 分钟": how long the note has been worked on, coarse enough to update twice a minute. */
-function elapsedLabel(since: number, now: number): string {
-  const minutes = Math.floor(Math.max(0, now - since) / MINUTE)
-  if (minutes < 1) return '刚开始'
-  if (minutes < 60) return `${minutes} 分钟`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return minutes % 60 >= 30 && hours < 10 ? `${hours} 个半小时` : `${hours} 小时`
-  return `${Math.floor(hours / 24)} 天`
-}
-
-function useNow(enabled: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!enabled) return
-    const timer = window.setInterval(() => setNow(Date.now()), MINUTE / 2)
-    return () => window.clearInterval(timer)
-  }, [enabled])
-  return now
 }
 
 /**
@@ -216,9 +194,8 @@ export function NoteApp({ init }: { init: NoteInit }) {
 
   const short = size.height < 170
   const doing = isInProgress(note)
-  const now = useNow(doing)
-  const startedAt = note.startedAt ?? now
-  const startedClock = new Date(startedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  // Work often spans days, so the bar shows when it started rather than a running clock.
+  const started = doing && note.startedAt !== undefined ? formatStart(note.startedAt, true) : ''
 
   return (
     <div className="note-stage">
@@ -236,18 +213,20 @@ export function NoteApp({ init }: { init: NoteInit }) {
         onPointerDownCapture={() => window.lavaNote.activated()}
         aria-label="便签"
       >
+        <div className="note__glow" aria-hidden />
         <div className="note__mount" onPointerDown={onDragPointerDown} aria-hidden />
         <div className="note__paper">
           <div className="note__grain" aria-hidden />
           <div className="note__tear-edge" aria-hidden />
           <div className="note__crease" aria-hidden />
+          <div className="note__doing-wash" aria-hidden />
           <header className="note__topbar" onPointerDown={onDragPointerDown}>
             <button type="button" className="note__icon" title="新建便签 Ctrl+N" aria-label="新建便签" onClick={() => window.lavaNote.newNote()}>
               <Plus size={16} strokeWidth={1.9} />
             </button>
             {doing && size.width >= 220 && (
-              <span className="note__doing-label" title={`${startedClock} 开始`}>
-                进行中{size.width >= 260 && <span> · {elapsedLabel(startedAt, now)}</span>}
+              <span className="note__doing-label" title={`${started} 开始`}>
+                进行中{size.width >= 250 && <span> · {size.width >= 300 ? started : formatStart(note.startedAt!, false)} 起</span>}
               </span>
             )}
             <span className="note__spacer" />
@@ -256,7 +235,7 @@ export function NoteApp({ init }: { init: NoteInit }) {
             <button
               type="button"
               className="note__icon note__icon--doing"
-              title={doing ? `进行中，${startedClock} 开始。点一下取消` : '开始做：标记为进行中'}
+              title={doing ? `进行中，${started} 开始。点一下取消` : '开始做：标记为进行中'}
               aria-label={doing ? '取消进行中' : '标记为进行中'}
               aria-pressed={doing}
               disabled={leaving !== null}

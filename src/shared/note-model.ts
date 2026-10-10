@@ -289,6 +289,18 @@ export function noteState(note: Pick<NoteRecord, 'archivedAt' | 'abandonedAt'>):
   return 'active'
 }
 
+/**
+ * When something was started, as a date (and time): "10月9日 14:30". Absolute,
+ * so it reads the same days later; earlier years get the year too.
+ */
+export function formatStart(time: number, withTime: boolean, now = Date.now()): string {
+  const date = new Date(time)
+  const year = date.getFullYear() === new Date(now).getFullYear() ? '' : `${date.getFullYear()}年`
+  const day = `${year}${date.getMonth() + 1}月${date.getDate()}日`
+  if (!withTime) return day
+  return `${day} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
 /** A note on the desk that has been marked as being worked on. */
 export function isInProgress(note: Pick<NoteRecord, 'archivedAt' | 'abandonedAt' | 'startedAt'>): boolean {
   return note.startedAt !== undefined && noteState(note) === 'active'

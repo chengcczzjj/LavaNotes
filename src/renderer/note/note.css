@@ -32,8 +32,13 @@ select {
   --paper-top: #fff7b7;
   --paper-bottom: #f5df72;
   --paper-edge: #cfb951;
-  /* In progress: a warm amber, distinct from the green of done on every paper. */
-  --doing: #b5621b;
+  /*
+   * In progress takes the paper's own colour: --doing is a deep shade of it for
+   * the label, the mark and the checklist box; --doing-glow a bright, saturated
+   * one for the light around the note and along a checklist row.
+   */
+  --doing: #a8650f;
+  --doing-glow: #f7c548;
   position: absolute;
   color: var(--ink);
   transform: rotate(var(--note-rotation));
@@ -41,10 +46,10 @@ select {
   isolation: isolate;
 }
 
-.note[data-color="rose"] { --paper-top: #ffd7d1; --paper-bottom: #f4aaa4; --paper-edge: #c87570; --doing: #9c4a16; }
-.note[data-color="mint"] { --paper-top: #dff4c9; --paper-bottom: #a9d58f; --paper-edge: #70975e; }
-.note[data-color="sky"] { --paper-top: #d9f1f4; --paper-bottom: #9fd4dc; --paper-edge: #6196a0; }
-.note[data-color="lilac"] { --paper-top: #eee2f2; --paper-bottom: #cdb4d8; --paper-edge: #8f73a0; }
+.note[data-color="rose"] { --paper-top: #ffd7d1; --paper-bottom: #f4aaa4; --paper-edge: #c87570; --doing: #b2453b; --doing-glow: #f77f76; }
+.note[data-color="mint"] { --paper-top: #dff4c9; --paper-bottom: #a9d58f; --paper-edge: #70975e; --doing: #3f7f36; --doing-glow: #7fd067; }
+.note[data-color="sky"] { --paper-top: #d9f1f4; --paper-bottom: #9fd4dc; --paper-edge: #6196a0; --doing: #1f7a8f; --doing-glow: #52c2da; }
+.note[data-color="lilac"] { --paper-top: #eee2f2; --paper-bottom: #cdb4d8; --paper-edge: #8f73a0; --doing: #774ba0; --doing-glow: #b385dd; }
 
 .note__paper {
   position: absolute;
@@ -62,6 +67,7 @@ select {
     5px 10px 18px rgba(36, 29, 16, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.46),
     inset 0 -1px 0 rgba(86, 59, 15, 0.08);
+  transition: box-shadow 500ms ease;
   /*
    * One calm cursor: the arrow on the paper, its bar and every button, the text
    * cursor over the writing area, and a hand only on the tape and while moving.
@@ -237,6 +243,62 @@ select {
 .note[data-doing="true"] .note__topbar { border-bottom-color: color-mix(in srgb, var(--doing), transparent 74%); }
 .note[data-doing="true"] .note__topbar::after { opacity: 1; animation: doing-flow 4.2s cubic-bezier(0.45, 0.05, 0.35, 1) infinite; }
 
+/*
+ * The whole note at work: a warm halo hugs the lower half of the paper and
+ * spills into the transparent margin (which stays click-through: pointer-events
+ * none keeps it out of the hit test), and light rises into the paper from its
+ * bottom edge; both breathe slowly. The margin is at least 30px even at the
+ * corners of the largest tilted paper, and the blur ends inside it.
+ */
+.note__glow {
+  position: absolute;
+  z-index: -1;
+  top: 42%;
+  right: -5px;
+  bottom: -8px;
+  left: -5px;
+  border-radius: 12px;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--doing-glow), transparent 60%), var(--doing-glow) 70%);
+  filter: blur(11px);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  transition: opacity 600ms ease;
+}
+.note__doing-wash {
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 42%;
+  background: linear-gradient(to top, color-mix(in srgb, var(--doing-glow), transparent 48%), color-mix(in srgb, var(--doing-glow), transparent 84%) 40%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: 50% 100%;
+  transition: opacity 600ms ease;
+}
+.note[data-doing="true"] .note__glow { opacity: 1; animation: doing-glow 3.4s ease-in-out infinite; }
+/* A lighter drop shadow, so the warm light is not darkened by it. */
+.note[data-doing="true"] .note__paper {
+  box-shadow:
+    1px 2px 1px rgba(49, 39, 19, 0.1),
+    2px 5px 9px rgba(36, 29, 16, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    inset 0 -1px 0 rgba(86, 59, 15, 0.08);
+}
+.note[data-doing="true"] .note__doing-wash { opacity: 1; animation: doing-wash 3.4s ease-in-out infinite; }
+.note[data-leaving] .note__glow,
+.note[data-leaving] .note__doing-wash { opacity: 0; animation: none; }
+
+@keyframes doing-glow {
+  0%, 100% { opacity: 0.45; transform: scaleY(0.94); }
+  50% { opacity: 0.95; transform: none; }
+}
+@keyframes doing-wash {
+  0%, 100% { opacity: 0.5; transform: scaleY(0.75); }
+  50% { opacity: 1; transform: none; }
+}
 @keyframes doing-orbit { to { transform: rotate(360deg); } }
 @keyframes doing-breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
@@ -323,7 +385,7 @@ select {
 .note-editor ul[data-type="taskList"] li[data-checked="true"] > div { opacity: 0.55; text-decoration: line-through; }
 
 /*
- * The checklist box has three states: to do; in progress (right click: amber
+ * The checklist box has three states: to do; in progress (right click: the paper's
  * with the breathing dot of the note's 进行中 mark); done (green check). The
  * real checkbox stays on top, invisible, so clicking works exactly as before.
  */
@@ -387,6 +449,37 @@ select {
   opacity: 1;
   transform: none;
   animation: doing-pop 260ms ease-out, doing-breathe 2.6s ease-in-out 260ms infinite;
+}
+
+/* The whole row of an item in progress glows: a warm band, brightest at the box, breathing with its dot. */
+.note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at] {
+  position: relative;
+  isolation: isolate;
+}
+.note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at]::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0.04em -0.45em;
+  content: "";
+  border-radius: 0.45em;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--doing-glow), transparent 66%), color-mix(in srgb, var(--doing-glow), transparent 84%) 55%, color-mix(in srgb, var(--doing-glow), transparent 94%));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--doing), transparent 80%),
+    0 0 12px color-mix(in srgb, var(--doing-glow), transparent 62%);
+  pointer-events: none;
+  animation: doing-row-in 320ms ease-out, doing-row 2.6s ease-in-out 320ms infinite;
+}
+.note-editor ul[data-type="taskList"] li[data-checked="false"][data-started-at] > div > p:first-child {
+  color: color-mix(in srgb, var(--doing), var(--ink) 55%);
+}
+
+@keyframes doing-row-in {
+  from { opacity: 0; transform: scaleX(0.96); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes doing-row {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 /* images */
@@ -784,6 +877,9 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .doing-glyph *,
   .note__topbar::after,
+  .note__glow,
+  .note__doing-wash,
+  .note-editor ul[data-type="taskList"] li::before,
   .note-editor ul[data-type="taskList"] li > label::after { animation: none !important; }
   .note[data-leaving="crumple"] .note__paper,
   .note[data-leaving="crumple"] .note__crease,
