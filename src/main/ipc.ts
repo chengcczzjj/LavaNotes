@@ -1,7 +1,8 @@
 import { ipcMain, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { IPC } from '@shared/ipc'
 import { MANAGER_PAGES, type AppSettings, type CreateNoteOptions, type ManagerPage, type NoteInit, type NotePatch } from '@shared/types'
-import { FONT_FAMILIES, NOTE_COLORS, NOTE_LAYERS } from '@shared/note-model'
+import { FONT_FAMILIES, NOTE_COLORS, NOTE_LAYERS, effectSettingsOf } from '@shared/note-model'
+import { clampVolume, isCompleteEffect, type CompleteEffect } from '@shared/effects'
 import { getWindowMargin } from '@shared/geometry'
 import { PROVIDER_IDS, type AiSettingsPatch, type ProviderId } from '@shared/ai'
 import { sanitizeTranslateRequest, type TranslateResult } from '@shared/translate'
@@ -21,6 +22,9 @@ export interface IpcContext {
   abandonNote: (id: string) => void
   /** The note window finished its tear or crumple animation. */
   finishTear: (id: string) => void
+  /** The cursor is on a note's ✓. */
+  prepareComplete: (id: string) => void
+  previewEffect: (effect: CompleteEffect | null) => Promise<boolean>
   setSettings: (patch: Partial<AppSettings>) => AppSettings
   openManager: (page?: ManagerPage) => void
   ai: AiService
@@ -118,7 +122,19 @@ export function registerIpc(context: IpcContext): void {
       margin: getWindowMargin(note.rotation),
       platform: process.platform,
       focusEditor: windows.consumeFocusEditor(id),
+      appear: windows.appearPlan(id),
+      effects: effectSettingsOf(service.settings),
     }
+  })
+
+  ipcMain.on(IPC.NOTE_APPEAR_READY, (event) => {
+    const id = noteOf(event)
+    if (id) windows.appearReady(id)
+  })
+
+  ipcMain.on(IPC.NOTE_PREPARE_COMPLETE, (event) => {
+    const id = noteOf(event)
+    if (id) context.prepareComplete(id)
   })
 
   ipcMain.on(IPC.NOTE_SAVE_CONTENT, (event, doc: unknown) => {
@@ -290,7 +306,15 @@ export function registerIpc(context: IpcContext): void {
     const next: Partial<AppSettings> = {}
     if (typeof source.launchAtLogin === 'boolean') next.launchAtLogin = source.launchAtLogin
     if (NOTE_LAYERS.includes(source.defaultLayer as never)) next.defaultLayer = source.defaultLayer as AppSettings['defaultLayer']
+    if (typeof source.effects === 'boolean') next.effects = source.effects
+    if (typeof source.sound === 'boolean') next.sound = source.sound
+    if (typeof source.volume === 'number') next.volume = clampVolume(source.volume)
     return context.setSettings(next)
+  })
+
+  ipcMain.handle(IPC.MANAGER_PREVIEW_EFFECT, (event, effect: unknown) => {
+    assertManager(event)
+    return context.previewEffect(isCompleteEffect(effect) ? effect : null)
   })
 
   ipcMain.handle(IPC.MANAGER_SHOW_ALL, (event) => {

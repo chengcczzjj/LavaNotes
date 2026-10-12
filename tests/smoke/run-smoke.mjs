@@ -28,10 +28,11 @@ const child = spawn(electron, args, {
   },
 })
 
+// Screenshots of every finishing animation take a while longer.
 const timeout = setTimeout(() => {
   console.error('smoke test timed out')
   child.kill('SIGKILL')
-}, 90_000)
+}, process.env.LAVANOTES_SMOKE_SHOTS ? 240_000 : 90_000)
 
 const code = await new Promise((resolveExit) => child.on('exit', resolveExit))
 clearTimeout(timeout)

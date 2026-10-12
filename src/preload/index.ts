@@ -1,19 +1,31 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import { IPC, type HostBridge, type HostOpenRequest, type ManagerBridge, type NoteBridge, type TrayBridge, type TrayMenuState } from '@shared/ipc'
-import type { LeaveKind, ManagerPage, NoteRecord, UpdateState } from '@shared/types'
+import {
+  IPC,
+  type EffectsBridge,
+  type HostBridge,
+  type HostOpenRequest,
+  type LeaveRequest,
+  type ManagerBridge,
+  type NoteBridge,
+  type TrayBridge,
+  type TrayMenuState,
+} from '@shared/ipc'
+import type { ManagerPage, NoteRecord, UpdateState } from '@shared/types'
 import type { TranslateEvent } from '@shared/translate'
+import type { AppearPlan, CelebrationRequest, EffectSettings } from '@shared/effects'
 
 /**
  * One sandboxed preload for every window. Note windows share the host's renderer
  * process, so the role cannot come from process arguments; it comes from the
  * page that is loading, and each page only gets its own API.
  */
-function pageRole(): 'host' | 'note' | 'manager' | 'tray' | null {
+function pageRole(): 'host' | 'note' | 'manager' | 'tray' | 'effects' | null {
   const path = (globalThis as { location?: { pathname?: string } }).location?.pathname ?? ''
   if (path.endsWith('/note/index.html')) return 'note'
   if (path.endsWith('/manager/index.html')) return 'manager'
   if (path.endsWith('/host/index.html')) return 'host'
   if (path.endsWith('/tray/index.html')) return 'tray'
+  if (path.endsWith('/effects/index.html')) return 'effects'
   return null
 }
 
@@ -54,7 +66,11 @@ if (role === 'note') {
     onTranslateEvent: (listener) => subscribe<[number, TranslateEvent]>(IPC.NOTE_TRANSLATE_EVENT, listener),
     onAiChanged: (listener) => subscribe(IPC.NOTE_AI_CHANGED, listener),
     onUpdated: (listener) => subscribe<[NoteRecord]>(IPC.NOTE_UPDATED, listener),
-    onPlayTear: (listener) => subscribe<[LeaveKind]>(IPC.NOTE_PLAY_TEAR, listener),
+    onPlayTear: (listener) => subscribe<[LeaveRequest]>(IPC.NOTE_PLAY_TEAR, listener),
+    appearReady: () => ipcRenderer.send(IPC.NOTE_APPEAR_READY),
+    onAppear: (listener) => subscribe<[AppearPlan]>(IPC.NOTE_APPEAR, listener),
+    onEffectSettings: (listener) => subscribe<[EffectSettings]>(IPC.NOTE_EFFECT_SETTINGS, listener),
+    prepareComplete: () => ipcRenderer.send(IPC.NOTE_PREPARE_COMPLETE),
     onFocusEditor: (listener) => subscribe(IPC.NOTE_FOCUS_EDITOR, listener),
     onHitTest: (listener) => subscribe<[number, number, number]>(IPC.NOTE_HIT_TEST, listener),
     onFlushRequest: (listener) => subscribe(IPC.NOTE_FLUSH_REQUEST, listener),
@@ -91,6 +107,7 @@ if (role === 'note') {
     chatgptCancel: () => ipcRenderer.invoke(IPC.MANAGER_AI_SIGN_IN_CANCEL),
     chatgptSignOut: () => ipcRenderer.invoke(IPC.MANAGER_AI_SIGN_OUT),
     openUrl: (url) => ipcRenderer.invoke(IPC.MANAGER_OPEN_URL, url),
+    previewEffect: (effect) => ipcRenderer.invoke(IPC.MANAGER_PREVIEW_EFFECT, effect),
     onChanged: (listener) => subscribe(IPC.MANAGER_CHANGED, listener),
     onUpdateState: (listener) => subscribe<[UpdateState]>(IPC.MANAGER_UPDATE_STATE, listener),
     onAiChanged: (listener) => subscribe(IPC.MANAGER_AI_CHANGED, listener),
@@ -110,4 +127,11 @@ if (role === 'note') {
     close: () => ipcRenderer.send(IPC.TRAY_CLOSE),
   }
   contextBridge.exposeInMainWorld('lavaTray', api)
+} else if (role === 'effects') {
+  const api: EffectsBridge = {
+    onPlay: (listener) => subscribe<[CelebrationRequest]>(IPC.EFFECTS_PLAY, listener),
+    ready: (seq) => ipcRenderer.send(IPC.EFFECTS_READY, seq),
+    idle: () => ipcRenderer.send(IPC.EFFECTS_IDLE),
+  }
+  contextBridge.exposeInMainWorld('lavaEffects', api)
 }

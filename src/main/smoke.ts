@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, screen } from 'electron'
 import { IPC } from '@shared/ipc'
 import { writeFile } from 'node:fs/promises'
 import type { CreateNoteOptions, NoteRecord } from '@shared/types'
@@ -7,9 +7,11 @@ import type { InsightRunResult } from '@shared/insights'
 import type { AiService } from './ai/service'
 import { startMockModelServer } from './smoke-ai'
 import { NOTE_COLORS, NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH } from '@shared/note-model'
+import { APPEAR_EFFECTS, COMPLETE_EFFECTS, TASK_EFFECTS } from '@shared/effects'
 import { getWindowMargin, windowBoundsForPaper } from '@shared/geometry'
 import type { NotesService } from './notes-service'
 import type { NoteWindowManager } from './note-windows'
+import type { EffectsOverlay } from './effects-window'
 import { storeImage } from './assets'
 import { openManagerWindow } from './manager-window'
 import { preloadPath } from './app-paths'
@@ -19,6 +21,7 @@ import { trayPopup } from './tray'
 interface SmokeContext {
   service: NotesService
   windows: NoteWindowManager
+  effects: EffectsOverlay
   createNote: (options: CreateNoteOptions) => Promise<NoteRecord | null>
   completeNote: (id: string) => void
   abandonNote: (id: string) => void
@@ -56,7 +59,7 @@ async function waitFor<T>(probe: () => T | Promise<T>, timeoutMs = 8000): Promis
  * End-to-end check run with LAVANOTES_SMOKE=1 against a throwaway userData.
  * It drives real windows and writes a JSON report for tests/smoke/run-smoke.mjs.
  */
-export async function runSmoke({ service, windows, createNote, completeNote, abandonNote, statsDataset, ai, runInsight }: SmokeContext): Promise<void> {
+export async function runSmoke({ service, windows, effects, createNote, completeNote, abandonNote, statsDataset, ai, runInsight }: SmokeContext): Promise<void> {
   const checks: Check[] = []
   const check = (name: string, ok: unknown, detail?: unknown) => {
     checks.push({ name, ok: Boolean(ok), detail })
@@ -82,6 +85,8 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
   const rendered = (id: string) => evalIn(id, `Boolean(document.querySelector('.note .note-editor'))`).catch(() => false)
 
   try {
+    // Animations play as usual, quietly: a test run should not make noise on the machine it runs on.
+    service.setSettings({ sound: false })
     const welcome = service.list()[0]
     check('first start shows a welcome note', welcome && await waitFor(() => rendered(welcome.id)), welcome?.title)
 
@@ -91,6 +96,16 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
     if (!a || !b || !c) throw new Error('create failed')
     const allRendered = await waitFor(async () => (await Promise.all([a, b, c].map((note) => rendered(note.id)))).every(Boolean))
     check('note windows render the editor', allRendered)
+
+    // New notes come in with an animation, a different one each time; the first start's notes too.
+    const appearOf = (id: string) => evalIn(id, `document.querySelector('.note__fx')?.dataset.appear ?? ''`).catch(() => '')
+    const appeared = await waitFor(async () => {
+      const played = await Promise.all([a, b, c, welcome].filter(Boolean).map((note) => appearOf(note!.id)))
+      return played.every((effect) => APPEAR_EFFECTS.includes(effect as never)) ? played : null
+    }, 5000)
+    check('new notes animate in, each with a different animation', appeared && new Set(appeared.slice(0, 3)).size === 3, appeared)
+    const settled = await waitFor(() => evalIn(c.id, `!document.querySelector('.note[data-appear]') && getComputedStyle(document.querySelector('.note__body')).opacity === '1'`), 3000)
+    check('after animating in the note is fully shown', settled)
 
     const opened = [a, b, c, welcome].filter(Boolean)
     const pids = new Set(opened.map((note) => windows.windowFor(note!.id)?.webContents.getOSProcessId()))
@@ -168,19 +183,36 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
     check('pin to desktop keeps the window open', Boolean(windows.windowFor(b.id)), { supported: windows.desktopPinSupported })
     service.patch(b.id, { layer: 'normal' })
 
-    // Finishing a note plays the tear animation and archives it.
+    // Finishing a note: the effects overlay takes over with a random celebration (Windows and
+    // macOS), or the note tears itself off; either way it is archived.
+    const beforeC = effects.lastPlayed
+    let firstFinish = ''
     completeNote(c.id)
     const archived = await waitFor(() => service.get(c.id)?.archivedAt !== undefined, 4000)
     check('completing a note tears it off into the archive', archived)
+    if (effects.supported) {
+      const playedC = await waitFor(() => effects.lastPlayed !== beforeC && effects.lastPlayed, 3000)
+      firstFinish = playedC ? playedC.effect : ''
+      const overlay = effects.window()
+      check('a finished note is celebrated on the effects overlay', Boolean(playedC) && COMPLETE_EFFECTS.includes(playedC ? playedC.effect as never : 'none' as never), playedC)
+      check('the effects overlay stays on top and never takes focus', Boolean(overlay?.isAlwaysOnTop()) && overlay?.isFocusable() === false)
+      if (process.env.LAVANOTES_SMOKE_SHOTS) await shot('effects-overlay', overlay ?? undefined)
+    }
     await waitFor(() => !windows.windowFor(c.id), 3000)
     check('the torn-off note window closes', !windows.windowFor(c.id))
 
     // The ✓ in the top bar does the same from the page, and the note can be put back.
     const d = await createNote({ text: 'smoke D', focus: false })
-    const dReady = Boolean(d) && await waitFor(() => rendered(d!.id))
+    // Finished once it is on screen and has come in, as a person could.
+    const dReady = Boolean(d) && await waitFor(() => rendered(d!.id)) && await waitFor(() => windows.isOnScreen(d!.id))
+      && await waitFor(() => evalIn(d!.id, `!document.querySelector('.note[data-appear]')`), 3000)
     if (d && dReady) await evalIn(d.id, `document.querySelector('.note__icon--done').click()`)
     const dArchived = Boolean(d) && await waitFor(() => service.get(d!.id)?.archivedAt !== undefined, 4000)
     check('the ✓ in the top bar tears the note off into the archive', dReady && dArchived)
+    if (effects.supported) {
+      const second = await waitFor(() => effects.lastPlayed?.effect !== firstFinish && effects.lastPlayed?.effect, 3000)
+      check('two finishes in a row play different celebrations', Boolean(firstFinish) && Boolean(second), { firstFinish, second })
+    }
     if (d) service.reopen(d.id)
     const dBack = Boolean(d) && await waitFor(() => rendered(d!.id), 5000)
     check('a torn-off note can be put back', dBack && service.get(d!.id)?.visible === true)
@@ -232,9 +264,13 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
         return item.includes('"taskItem"') && /"tid":"t/.test(item) && /"createdAt":\d+/.test(item)
       }, 4000)
       check('a new checklist item is stamped with an id and a time', stamped)
+      const firstCheckAt = Date.now()
       await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] input[type="checkbox"]').click()`)
       const checkedAt = await waitFor(async () => /"checkedAt":\d+/.test(JSON.stringify(await service.readContent(e.id))), 4000)
       check('checking an item records when it was checked', checkedAt)
+      const taskOf = () => evalIn(e.id, `(() => { const fx = document.querySelector('.note__fx'); return fx ? { effect: fx.dataset.task ?? '', streak: fx.dataset.streak ?? '' } : null })()`) as Promise<{ effect: string; streak: string } | null>
+      const firstTask = await taskOf()
+      check('checking an item plays a little celebration', TASK_EFFECTS.includes(firstTask?.effect as never) && firstTask?.streak === '0', firstTask)
       // Right click on the box: a checked item goes back to in progress; checking it again keeps the start.
       await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] > label').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))`)
       const doing = await waitFor(async () => {
@@ -250,12 +286,18 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
         await shot('note-task-doing-sky', winE)
         service.patch(e.id, { color: 'butter' })
       }
+      const secondCheckAt = Date.now()
       await evalIn(e.id, `document.querySelector('.note-editor li[data-checked] input[type="checkbox"]').click()`)
       const doneAgain = await waitFor(async () => {
         const body = JSON.stringify(await service.readContent(e.id))
         return /"checkedAt":\d+/.test(body) && /"startedAt":\d+/.test(body)
       }, 4000)
       check('checking an item in progress keeps when it started', doneAgain)
+      const secondTask = await taskOf()
+      // A streak lasts 4 seconds; a slow machine may take longer between the two checks.
+      const gap = secondCheckAt - firstCheckAt
+      const streakOk = gap < 3500 ? secondTask?.streak === '1' : gap > 4500 ? secondTask?.streak === '0' : ['0', '1'].includes(secondTask?.streak ?? '')
+      check('checking again climbs the streak (within 4 s) with another animation', streakOk && secondTask?.effect !== firstTask?.effect, { gap, firstTask, secondTask })
       await shot('note-task-done', winE)
 
       await evalIn(e.id, `document.querySelector('.ProseMirror').focus()`)
@@ -331,7 +373,7 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
       await mock.close()
     }
 
-    if (process.platform === 'win32') await runWindowsDesktopChecks({ service, windows, createNote, evalIn, check })
+    if (process.platform === 'win32') await runWindowsDesktopChecks({ service, windows, effects, createNote, evalIn, check })
 
     // LavaNotes' own tray menu (Windows): placed by the cursor inside the work area, an option
     // toggles in place, Escape closes it.
@@ -379,7 +421,19 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
     check('note lifelines are drawn', lifelinesDrawn)
     const insightShown = await waitFor(() => inManager(`document.querySelector('.insight__headline')?.textContent === '冒烟测试的一周'`), 4000)
     check('the AI reading is shown on the statistics page', insightShown)
+    // Settings → 完成动画与音效: switches, volume and a chip per finishing animation to try.
+    manager.webContents.send(IPC.MANAGER_NAVIGATE, 'settings')
+    const chips = await waitFor(() => inManager(`document.querySelectorAll('.effect-chips button').length`), 4000)
+    const switches = await inManager(`document.querySelectorAll('.settings input[type="checkbox"]').length`)
+    check('the settings offer animations, sound, volume and a preview of each finish', !effects.supported || chips === COMPLETE_EFFECTS.length + 1, { chips, switches })
+    if (effects.supported) {
+      const previewed = await inManager(`window.lavaManager.previewEffect('fireworks')`)
+      check('a finishing animation can be tried from the settings', previewed === true && effects.lastPlayed?.effect === 'fireworks', { previewed, last: effects.lastPlayed })
+    }
+    service.setSettings({ volume: 0.4 })
+    check('the volume setting is kept', service.settings.volume === 0.4)
     manager.webContents.send(IPC.MANAGER_NAVIGATE, 'ai')
+
     const aiReady = await waitFor(() => inManager(`Boolean(document.querySelector('.ai-page .status-bar')) && document.querySelectorAll('.ai-page .guide-row').length >= 9`), 8000)
     check('the AI 配置 page lists providers', aiReady)
     // Changing the provider back and forth leaves exactly one key card and one model list.
@@ -425,6 +479,82 @@ export async function runSmoke({ service, windows, createNote, completeNote, aba
       manager.webContents.send(IPC.MANAGER_NAVIGATE, 'ai')
       await sleep(600)
       await capture('manager-ai', manager)
+      manager.webContents.send(IPC.MANAGER_NAVIGATE, 'settings')
+      await sleep(600)
+      await capture('manager-settings', manager)
+
+      // Every finishing animation, a few frames each, cropped around the paper.
+      if (effects.supported) {
+        const area = screen.getPrimaryDisplay().workArea
+        const rotation = -2.4
+        const margin = getWindowMargin(rotation)
+        const paper = { margin, width: 300, height: 290, rotation }
+        const frame = { x: Math.round(area.x + area.width / 2 - 150 - margin), y: Math.round(area.y + area.height / 2 - 120 - margin), width: 300 + margin * 2, height: 290 + margin * 2 }
+        for (const effect of COMPLETE_EFFECTS) {
+          const played = await effects.play({ effect, color: 'mint', snapshot: null, scale: 1, frame, paper, sound: false, volume: 0, todayCount: 3 })
+          const overlay = effects.window()
+          if (!played || !overlay) continue
+          const crop = { x: Math.max(0, frame.x - area.x - 260), y: Math.max(0, frame.y - area.y - 330), width: frame.width + 520, height: frame.height + 520 }
+          const started = Date.now()
+          for (const at of [100, 350, 650, 1000, 1500]) {
+            await sleep(Math.max(0, at - (Date.now() - started)))
+            const image = await overlay.webContents.capturePage(crop)
+            await writeFile(join(shots, `effect-${effect}-${at}.png`), image.toPNG())
+          }
+          await sleep(1800)
+        }
+      }
+
+      // Every appear animation on note A, a few frames each. The attribute is set from
+      // outside, so the room NoteApp would compute is given here too.
+      const winA2 = windows.windowFor(a.id)
+      if (winA2) {
+        for (const effect of APPEAR_EFFECTS) {
+          await evalIn(a.id, `(() => {
+            const note = document.querySelector('.note')
+            note.style.setProperty('--appear-shift', '30px')
+            note.style.setProperty('--appear-swing', '8deg')
+            note.style.setProperty('--appear-grow', '1.15')
+            note.style.setProperty('--appear-radius', '260px')
+            delete note.dataset.appear
+            void note.offsetWidth
+            note.dataset.appear = '${effect}'
+          })()`)
+          const started = Date.now()
+          for (const at of [60, 160, 300, 480]) {
+            await sleep(Math.max(0, at - (Date.now() - started)))
+            const image = await winA2.webContents.capturePage()
+            await writeFile(join(shots, `appear-${effect}-${at}.png`), image.toPNG())
+          }
+          await sleep(700)
+          await evalIn(a.id, `delete document.querySelector('.note').dataset.appear`)
+        }
+      }
+
+      // Checked items: a list of ten on note A, checked one after another.
+      const items = Array.from({ length: 10 }, (_, i) => ({ type: 'taskItem', attrs: { checked: false }, content: [{ type: 'paragraph', content: [{ type: 'text', text: `第 ${i + 1} 件事` }] }] }))
+      service.saveContent(a.id, { type: 'doc', content: [{ type: 'taskList', content: items }] })
+      service.setVisible(a.id, false)
+      await waitFor(() => !windows.windowFor(a.id))
+      service.setVisible(a.id, true)
+      await waitFor(() => rendered(a.id))
+      await waitFor(() => windows.isOnScreen(a.id))
+      await sleep(1200)
+      const winA3 = windows.windowFor(a.id)
+      if (winA3) {
+        for (let i = 0; i < 10; i += 1) {
+          await evalIn(a.id, `document.querySelectorAll('.note-editor li[data-checked] input[type="checkbox"]')[${i}].click()`)
+          const effect = await evalIn(a.id, `document.querySelector('.note__fx').dataset.task`)
+          for (const at of [90, 260]) {
+            await sleep(at === 90 ? 90 : 170)
+            const image = await winA3.webContents.capturePage()
+            await writeFile(join(shots, `task-${i}-${effect}-${at}.png`), image.toPNG())
+          }
+          await sleep(600)
+        }
+        await sleep(400)
+        await writeFile(join(shots, 'task-all-done.png'), (await winA3.webContents.capturePage()).toPNG())
+      }
     }
 
     await windows.flushAll()

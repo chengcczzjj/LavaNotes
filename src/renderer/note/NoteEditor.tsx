@@ -54,6 +54,8 @@ interface NoteEditorProps {
   onTooLarge(): void
   onImageFailed(): void
   onNothingToTranslate(): void
+  /** A checklist item was just checked by the user; `allDone` when no open item is left. */
+  onTaskChecked(item: HTMLElement, box: HTMLElement, allDone: boolean): void
 }
 
 /** Only images stored by LavaNotes are accepted, so pasted web pages cannot load remote pictures. */
@@ -89,7 +91,7 @@ function paragraphsOf(text: string): NoteDocNode[] {
 }
 
 export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function NoteEditor(
-  { doc, times, onFocusChange, onTooLarge, onImageFailed, onNothingToTranslate },
+  { doc, times, onFocusChange, onTooLarge, onImageFailed, onNothingToTranslate, onTaskChecked },
   ref,
 ) {
   const saveTimer = useRef<number | null>(null)
@@ -210,6 +212,27 @@ export const NoteEditor = forwardRef<NoteEditorHandle, NoteEditorProps>(function
     flush: save,
     insertImages: (files) => void insertImages(files),
   }), [editor, insertImages, save])
+
+  // Checking an item: the checkbox's own listener updates the document first, so this
+  // listener on the editor (bubbling) sees the list as it is after the check.
+  const taskChecked = useRef(onTaskChecked)
+  taskChecked.current = onTaskChecked
+  useEffect(() => {
+    const dom = editor?.view.dom
+    if (!dom) return
+    const onChange = (event: Event) => {
+      const input = event.target as HTMLInputElement | null
+      if (!input || input.type !== 'checkbox' || !input.checked || !editor?.isEditable) return
+      const label = input.closest('label')
+      const item = label?.parentElement
+      if (!label || !item || item.parentElement?.getAttribute('data-type') !== 'taskList') return
+      const items = [...dom.querySelectorAll('ul[data-type="taskList"] > li')]
+      const allDone = items.length >= 2 && items.every((li) => li.getAttribute('data-checked') === 'true')
+      taskChecked.current(item, label, allDone)
+    }
+    dom.addEventListener('change', onChange)
+    return () => dom.removeEventListener('change', onChange)
+  }, [editor])
 
   useEffect(() => {
     const flushOnHide = () => save()

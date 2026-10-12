@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client'
 import { NoteApp } from './NoteApp'
 import './note.css'
+import './appear.css'
 
 async function boot(): Promise<void> {
   const init = await window.lavaNote.init()

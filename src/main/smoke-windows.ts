@@ -3,6 +3,7 @@ import type { CreateNoteOptions, NoteRecord } from '@shared/types'
 import { getWindowMargin } from '@shared/geometry'
 import type { NotesService } from './notes-service'
 import type { NoteWindowManager } from './note-windows'
+import type { EffectsOverlay } from './effects-window'
 
 /**
  * Windows-only part of the smoke test: what the user actually sees and clicks.
@@ -21,6 +22,7 @@ interface MouseApi {
 interface Context {
   service: NotesService
   windows: NoteWindowManager
+  effects: EffectsOverlay
   createNote: (options: CreateNoteOptions) => Promise<NoteRecord | null>
   evalIn: (id: string, script: string) => Promise<unknown>
   check: (name: string, ok: unknown, detail?: unknown) => void
@@ -85,7 +87,7 @@ function pixelAt(
 
 const isRed = (pixel: { r: number; g: number; b: number }) => pixel.r > 200 && pixel.g < 70 && pixel.b < 70
 
-export async function runWindowsDesktopChecks({ service, windows, createNote, evalIn, check }: Context): Promise<void> {
+export async function runWindowsDesktopChecks({ service, windows, effects, createNote, evalIn, check }: Context): Promise<void> {
   const note = await createNote({ text: 'desktop check', focus: false })
   if (!note) {
     check('windows: test note created', false)
@@ -141,13 +143,39 @@ export async function runWindowsDesktopChecks({ service, windows, createNote, ev
 
     const shot = await captureDisplay(display).catch(() => null)
     const outside = shot ? pixelAt(shot, display, { x: bounds.x - 15, y: bounds.y - 15 }) : null
-    if (!shot || !outside || !isRed(outside)) {
+    const capturable = Boolean(shot && outside && isRed(outside))
+    if (!shot || !outside || !capturable) {
       check('windows: transparent margin shows what is behind (skipped: no capturable desktop)', true, { outside })
     } else {
       const marginPixel = pixelAt(shot, display, marginPoint)
       const paperPixel = pixelAt(shot, display, paperPoint)
       check('windows: transparent margin shows what is behind', isRed(marginPixel), marginPixel)
       check('windows: the paper is drawn over it', !isRed(paperPixel) && !(paperPixel.r > 245 && paperPixel.g > 245 && paperPixel.b > 245), paperPixel)
+    }
+
+    // The effects overlay covers the whole work area while it plays: everywhere it
+    // draws nothing, the red window must still show (no opaque background) and get clicks.
+    const area = display.workArea
+    const rotation = 2.4
+    const overlayMargin = getWindowMargin(rotation)
+    const celebrate = () => effects.play({
+      effect: 'perfect',
+      color: 'sky',
+      snapshot: null,
+      scale: 1,
+      frame: { x: Math.round(area.x + area.width * 0.6), y: Math.round(area.y + area.height * 0.45), width: 260 + overlayMargin * 2, height: 240 + overlayMargin * 2 },
+      paper: { margin: overlayMargin, width: 260, height: 240, rotation },
+      sound: false,
+      volume: 0,
+      todayCount: 0,
+    })
+    if (effects.supported && capturable) {
+      const played = await celebrate()
+      await sleep(250)
+      const during = await captureDisplay(display).catch(() => null)
+      const behind = during ? pixelAt(during, display, { x: bounds.x - 15, y: bounds.y - 15 }) : null
+      check('windows: the effects overlay is transparent where it draws nothing', played && behind !== null && isRed(behind), { played, behind })
+      await sleep(1600)
     }
 
     const mouse = loadMouse()
@@ -171,6 +199,14 @@ export async function runWindowsDesktopChecks({ service, windows, createNote, ev
     await clickAt(marginPoint)
     await sleep(300)
     check('windows: clicks pass through the margin', backdrop.webContents.getTitle() === 'clicked', backdrop.webContents.getTitle())
+
+    if (effects.supported) {
+      await backdrop.webContents.executeJavaScript(`document.title = 'idle'`)
+      const played = await celebrate()
+      await clickAt({ x: bounds.x - 15, y: bounds.y - 15 })
+      check('windows: clicks pass through the effects overlay', played && backdrop.webContents.getTitle() === 'clicked', { played, title: backdrop.webContents.getTitle() })
+      await sleep(1200)
+    }
 
     await backdrop.webContents.executeJavaScript(`document.title = 'idle'`)
     await evalIn(note.id, `window.__smokeClicks = 0; document.addEventListener('pointerdown', () => { window.__smokeClicks += 1 }, true); true`)

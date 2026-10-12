@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import {
   Archive,
   ArchiveX,
@@ -15,11 +15,16 @@ import {
   RotateCcw,
   Search,
   Settings,
+  Shuffle,
+  Sparkles,
   StickyNote,
   Trash2,
+  Volume2,
 } from 'lucide-react'
 import { MANAGER_PAGES, type ManagerPage, type ManagerSnapshot, type NoteLayer, type NoteRecord, type UpdateState } from '@shared/types'
 import { NOTE_LAYERS, NOTE_LAYER_LABELS, displayTitle, formatStart, isInProgress, noteState } from '@shared/note-model'
+import { APPEAR_EFFECTS, COMPLETE_EFFECTS, COMPLETE_EFFECT_LABELS, TASK_EFFECTS, type CompleteEffect } from '@shared/effects'
+import { SoundBoard } from '../common/sfx'
 import { StatsPage } from './StatsPage'
 import { AiPage } from './AiPage'
 
@@ -195,6 +200,94 @@ function NotesTab({ notes }: { notes: NoteRecord[] }) {
   )
 }
 
+/**
+ * 完成动画与音效: the switches, the volume, and every finishing animation to try
+ * over this window. Each finish, each new note and each checked item picks
+ * one at random.
+ */
+function EffectsSettings({ snapshot }: { snapshot: ManagerSnapshot }) {
+  const { settings } = snapshot
+  /** While the slider is being dragged; the saved value otherwise. */
+  const [dragging, setDragging] = useState<number | null>(null)
+  const volume = dragging ?? Math.round(settings.volume * 100)
+  const [playing, setPlaying] = useState<CompleteEffect | 'random' | null>(null)
+  const board = useRef<SoundBoard | null>(null)
+  const supported = snapshot.platform === 'win32' || snapshot.platform === 'darwin'
+  /** Let the slider be heard where it stopped. */
+  const sample = (value: number) => {
+    setDragging(null)
+    board.current ??= new SoundBoard()
+    board.current.configure({ sound: true, volume: value / 100 })
+    board.current.play('ding', { gain: 0.8 })
+  }
+
+  const preview = async (effect: CompleteEffect | null) => {
+    setPlaying(effect ?? 'random')
+    try {
+      await api.previewEffect(effect)
+    } finally {
+      window.setTimeout(() => setPlaying(null), 400)
+    }
+  }
+
+  return (
+    <>
+      <h2 className="settings__heading">完成动画与音效</h2>
+      <label className="setting">
+        <div>
+          <strong>丰富动画</strong>
+          <span>
+            点 ✓ 完成便签时从 {COMPLETE_EFFECTS.length} 种完成动画里随机播放，新便签和贴回的便签有 {APPEAR_EFFECTS.length} 种出现动画，
+            勾选清单每勾一项有 {TASK_EFFECTS.length} 种小动画，连续勾选音调会越来越高。关闭后只保留简单的撕下动画。
+          </span>
+          {snapshot.reducedMotion && <span className="setting__warn">Windows 设置里关闭了“动画效果”，完成和出现动画已简化；在 设置 → 辅助功能 → 视觉效果 打开后生效。</span>}
+        </div>
+        <input type="checkbox" checked={settings.effects} onChange={(event) => void api.setSettings({ effects: event.target.checked })} />
+      </label>
+      <label className="setting">
+        <div><strong>音效</strong><span>撕纸、礼花、烟花、气泡、叮咚……每种动画配自己的声音，全部实时合成。</span></div>
+        <input type="checkbox" checked={settings.sound} onChange={(event) => void api.setSettings({ sound: event.target.checked })} />
+      </label>
+      <div className="setting" data-disabled={!settings.sound}>
+        <div><strong>音量</strong><span>只影响 LavaNotes 的音效。</span></div>
+        <div className="volume">
+          <Volume2 size={15} />
+          <input
+            type="range"
+            min={0}
+            max={100}
+            step={5}
+            value={volume}
+            disabled={!settings.sound}
+            aria-label="音量"
+            onChange={(event) => {
+              const value = Number(event.target.value)
+              setDragging(value)
+              void api.setSettings({ volume: value / 100 })
+            }}
+            onPointerUp={(event) => sample(Number((event.target as HTMLInputElement).value))}
+            onKeyUp={(event) => sample(Number((event.target as HTMLInputElement).value))}
+          />
+          <output>{volume}</output>
+        </div>
+      </div>
+      {supported && (
+        <div className="setting setting--column">
+          <div><strong>试一下完成动画</strong><span>在这个窗口上播放；平时点 ✓ 时随机挑一种，不会连着重复。</span></div>
+          <div className="effect-chips">
+            <button type="button" className="primary" disabled={playing !== null} onClick={() => void preview(null)}><Shuffle size={14} />随机</button>
+            {COMPLETE_EFFECTS.map((effect) => (
+              <button key={effect} type="button" data-active={playing === effect} disabled={playing !== null} onClick={() => void preview(effect)}>
+                <Sparkles size={13} />{COMPLETE_EFFECT_LABELS[effect]}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 function SettingsTab({ snapshot }: { snapshot: ManagerSnapshot }) {
   const [update, setUpdate] = useState<UpdateState>({ status: 'idle' })
   useEffect(() => api.onUpdateState(setUpdate), [])
@@ -209,6 +302,7 @@ function SettingsTab({ snapshot }: { snapshot: ManagerSnapshot }) {
   }[update.status]
   return (
     <section className="panel settings">
+      <h2 className="settings__heading">常规</h2>
       <label className="setting">
         <div><strong>开机启动</strong><span>登录 Windows 后自动把便签贴回桌面。</span></div>
         <input type="checkbox" checked={snapshot.settings.launchAtLogin} onChange={(event) => void api.setSettings({ launchAtLogin: event.target.checked })} />
@@ -223,6 +317,8 @@ function SettingsTab({ snapshot }: { snapshot: ManagerSnapshot }) {
           ))}
         </div>
       </div>
+      <EffectsSettings snapshot={snapshot} />
+      <h2 className="settings__heading">其他</h2>
       <div className="setting">
         <div><strong>数据位置</strong><span>{snapshot.dataDir}</span></div>
         <button type="button" onClick={() => void api.openDataDir()}><FolderOpen size={14} />打开</button>

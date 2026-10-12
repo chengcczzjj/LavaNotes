@@ -41,6 +41,7 @@ export default defineConfig({
           note: resolve(__dirname, 'src/renderer/note/index.html'),
           manager: resolve(__dirname, 'src/renderer/manager/index.html'),
           tray: resolve(__dirname, 'src/renderer/tray/index.html'),
+          effects: resolve(__dirname, 'src/renderer/effects/index.html'),
         },
       },
     },

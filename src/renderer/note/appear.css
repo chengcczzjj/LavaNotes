@@ -1,0 +1,164 @@
+/* ---- the body of the note: everything inside the tilted .note ---- */
+
+/*
+ * Appear animations move this wrapper, so they run along the paper's own axes
+ * and never touch the tilt on .note. Amounts that move or grow the paper come
+ * from NoteApp (--appear-shift, --appear-swing, --appear-grow, --appear-radius),
+ * limited by the room the tilt leaves in the window's transparent margin.
+ */
+.note__body {
+  position: absolute;
+  inset: 0;
+}
+
+.note[data-leaving="handoff"] { pointer-events: none; }
+
+/* Particles of checked items and of some appear animations; never in the way of the mouse. */
+.note__fx {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Until the window is on screen. */
+.note[data-appear="waiting"] .note__body { opacity: 0; }
+
+.note[data-appear="pop"] .note__body { animation: appear-pop 520ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.note[data-appear="drop"] .note__body { transform-origin: 50% 100%; animation: appear-drop 640ms both; }
+.note[data-appear="flip"] .note__body { animation: appear-flip 620ms cubic-bezier(0.25, 0.8, 0.35, 1) both; }
+.note[data-appear="unroll"] .note__body { animation: appear-unroll 600ms cubic-bezier(0.3, 0.7, 0.3, 1) both; }
+.note[data-appear="swing"] .note__body { transform-origin: 50% -8px; animation: appear-swing 900ms ease-in-out both; }
+.note[data-appear="wipe"] .note__body { animation: appear-wipe 560ms cubic-bezier(0.35, 0.6, 0.3, 1) both; }
+.note[data-appear="wipe"] .note__sheen { opacity: 1; animation: appear-sheen 620ms ease-out both; }
+.note[data-appear="iris"] .note__body { animation: appear-iris 560ms cubic-bezier(0.3, 0.7, 0.3, 1) both; }
+.note[data-appear="focus"] .note__body { animation: appear-focus 560ms ease-out both; }
+.note[data-appear="slap"] .note__body { animation: appear-slap 520ms both; }
+.note[data-appear="spin"] .note__body { animation: appear-spin 640ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+.note[data-appear="flap"] .note__body { transform-origin: 50% 0; animation: appear-flap 620ms ease-out both; }
+.note[data-appear="sticker"] .note__body { animation: appear-sticker 640ms cubic-bezier(0.4, 0.2, 0.3, 1) both; }
+.note[data-appear="jelly"] .note__body { animation: appear-jelly 760ms ease-in-out both; }
+.note[data-appear="sparkle"] .note__body { animation: appear-sparkle 760ms ease-out both; }
+.note[data-appear="rise"] .note__body { animation: appear-rise 560ms cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+
+@keyframes appear-pop {
+  0% { opacity: 0; transform: scale(0.55); }
+  45% { opacity: 1; }
+  60% { transform: scale(min(1.05, var(--appear-grow))); }
+  80% { transform: scale(0.985); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* Falls a little, lands (the thud at 330ms) with a squash, settles. */
+@keyframes appear-drop {
+  0% { opacity: 0; transform: translateY(calc(var(--appear-shift) * -1)) rotate(-1.5deg); animation-timing-function: cubic-bezier(0.55, 0, 0.9, 0.45); }
+  20% { opacity: 1; }
+  50% { transform: translateY(0) scale(1.03, 0.95); animation-timing-function: ease-out; }
+  70% { transform: translateY(calc(var(--appear-shift) * -0.18)) scale(0.99, 1.02); animation-timing-function: ease-in; }
+  85% { transform: translateY(0) scale(1.01, 0.99); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes appear-flip {
+  0% { opacity: 0; transform: perspective(900px) rotateY(-95deg); }
+  40% { opacity: 1; }
+  65% { transform: perspective(900px) rotateY(14deg); }
+  82% { transform: perspective(900px) rotateY(-5deg); }
+  100% { opacity: 1; transform: perspective(900px) rotateY(0deg); }
+}
+
+/* Revealed from the tape down, as if unrolled. */
+@keyframes appear-unroll {
+  0% { clip-path: inset(-60px -60px 100% -60px); transform: translateY(-4px); }
+  100% { clip-path: inset(-60px -60px -60px -60px); transform: none; }
+}
+
+/* Hung by its tape, it swings in and comes to rest. */
+@keyframes appear-swing {
+  0% { opacity: 0; transform: rotate(var(--appear-swing)); }
+  15% { opacity: 1; }
+  35% { transform: rotate(calc(var(--appear-swing) * -0.65)); }
+  55% { transform: rotate(calc(var(--appear-swing) * 0.38)); }
+  72% { transform: rotate(calc(var(--appear-swing) * -0.18)); }
+  86% { transform: rotate(calc(var(--appear-swing) * 0.07)); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes appear-wipe {
+  0% { clip-path: inset(-60px 100% -60px -60px); transform: translateX(-8px); }
+  100% { clip-path: inset(-60px -60px -60px -60px); transform: none; }
+}
+@keyframes appear-sheen {
+  0% { transform: translateX(-150%) skewX(-18deg); }
+  100% { transform: translateX(400%) skewX(-18deg); }
+}
+
+@keyframes appear-iris {
+  0% { clip-path: circle(0px at 50% 45%); transform: scale(0.96); }
+  100% { clip-path: circle(var(--appear-radius) at 50% 45%); transform: none; }
+}
+
+@keyframes appear-focus {
+  0% { opacity: 0; filter: blur(12px) brightness(1.15); transform: scale(1.04); }
+  60% { opacity: 1; }
+  100% { opacity: 1; filter: none; transform: none; }
+}
+
+/* Slapped onto the desk: the sound lands at 220ms. */
+@keyframes appear-slap {
+  0% { opacity: 0; transform: scale(var(--appear-grow)) rotate(-2deg); animation-timing-function: cubic-bezier(0.6, 0, 0.9, 0.4); }
+  42% { opacity: 1; transform: scale(0.965) rotate(0deg); animation-timing-function: ease-out; }
+  65% { transform: scale(1.012); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes appear-spin {
+  0% { opacity: 0; transform: rotate(-220deg) scale(0.15); }
+  45% { opacity: 1; }
+  70% { transform: rotate(6deg) scale(1.02); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* A flap hinged at the tape, falling towards the viewer and settling. */
+@keyframes appear-flap {
+  0% { opacity: 0; transform: perspective(800px) rotateX(85deg); }
+  35% { opacity: 1; }
+  60% { transform: perspective(800px) rotateX(-10deg); }
+  80% { transform: perspective(800px) rotateX(4deg); }
+  100% { opacity: 1; transform: perspective(800px) rotateX(0deg); }
+}
+
+/* Smoothed down from one corner like a sticker. */
+@keyframes appear-sticker {
+  0% { clip-path: polygon(-60px -60px, -60px -60px, -60px -60px); transform: scale(1.02); }
+  85% { transform: scale(1.01); }
+  100% { clip-path: polygon(-60px -60px, calc(200% + 60px) -60px, -60px calc(200% + 60px)); transform: none; }
+}
+
+@keyframes appear-jelly {
+  0% { opacity: 0; transform: scale(0.4); }
+  30% { opacity: 1; transform: scale(min(1.14, var(--appear-grow)), 0.86); }
+  45% { transform: scale(0.9, min(1.1, var(--appear-grow))); }
+  60% { transform: scale(min(1.05, var(--appear-grow)), 0.95); }
+  75% { transform: scale(0.98, 1.02); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes appear-sparkle {
+  0% { opacity: 0; filter: brightness(1.35); transform: scale(0.94); }
+  40% { opacity: 1; }
+  100% { opacity: 1; filter: none; transform: none; }
+}
+
+@keyframes appear-rise {
+  0% { opacity: 0; transform: translateY(var(--appear-shift)); }
+  70% { opacity: 1; transform: translateY(-3px); }
+  100% { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note[data-appear] .note__body,
+  .note[data-appear] .note__sheen { animation-duration: 1ms !important; }
+}

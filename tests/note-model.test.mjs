@@ -128,7 +128,9 @@ test('docs from disk are normalized and plain text becomes paragraphs', () => {
 })
 
 test('settings default to launching at login with ordinary windows', () => {
-  assert.deepEqual(normalizeSettings(undefined), { launchAtLogin: true, defaultLayer: 'normal' })
+  assert.deepEqual(normalizeSettings(undefined), { launchAtLogin: true, defaultLayer: 'normal', effects: true, sound: true, volume: 0.7 })
+  assert.deepEqual(normalizeSettings({ effects: false, sound: false, volume: 3 }), { launchAtLogin: true, defaultLayer: 'normal', effects: false, sound: false, volume: 1 })
+  assert.equal(normalizeSettings({ volume: 'loud' }).volume, 0.7)
   assert.equal(normalizeSettings({ defaultLayer: 'desktop' }).defaultLayer, 'desktop')
   assert.equal(normalizeSettings({ defaultLayer: 'x' }).defaultLayer, 'normal')
 })

@@ -9,6 +9,7 @@ import type {
   NotePatch,
   NoteRecord,
 } from './types.ts'
+import { DEFAULT_EFFECT_SETTINGS, clampVolume, type EffectSettings } from './effects.ts'
 
 export const NOTE_COLORS: readonly NoteColor[] = ['butter', 'rose', 'mint', 'sky', 'lilac']
 export const NOTE_LAYERS: readonly NoteLayer[] = ['normal', 'top', 'desktop']
@@ -56,6 +57,9 @@ export const FONT_FAMILY_LABELS: Record<NoteFontFamily, string> = {
 export const DEFAULT_SETTINGS: AppSettings = {
   launchAtLogin: true,
   defaultLayer: 'normal',
+  effects: DEFAULT_EFFECT_SETTINGS.enabled,
+  sound: DEFAULT_EFFECT_SETTINGS.sound,
+  volume: DEFAULT_EFFECT_SETTINGS.volume,
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -156,7 +160,15 @@ export function normalizeSettings(value: unknown): AppSettings {
   return {
     launchAtLogin: source.launchAtLogin !== false,
     defaultLayer: readEnum(source.defaultLayer, NOTE_LAYERS, DEFAULT_SETTINGS.defaultLayer),
+    effects: source.effects !== false,
+    sound: source.sound !== false,
+    volume: clampVolume(source.volume),
   }
+}
+
+/** The part of the settings the pages need for animations and sound. */
+export function effectSettingsOf(settings: AppSettings): EffectSettings {
+  return { enabled: settings.effects, sound: settings.sound, volume: settings.volume }
 }
 
 export function createNoteId(now = Date.now(), random = Math.random): string {

@@ -167,6 +167,19 @@ main { min-width: 0; overflow: auto; padding: 22px 26px; }
 .setting > div:first-child { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 3px; }
 .setting > div:first-child span { color: var(--muted); line-height: 1.45; overflow-wrap: anywhere; }
 .setting input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+.setting[data-disabled="true"] { opacity: 0.6; }
+.setting--column { flex-direction: column; align-items: stretch; gap: 12px; }
+.setting__warn { color: #9a5a17 !important; }
+.settings__heading { margin: 10px 2px 0; color: var(--muted); font-size: 12px; font-weight: 650; letter-spacing: 0.04em; }
+.settings__heading:first-child { margin-top: 0; }
+
+.volume { display: flex; align-items: center; gap: 8px; color: var(--muted); }
+.volume input[type="range"] { width: 160px; accent-color: var(--accent); }
+.volume output { min-width: 26px; color: var(--ink); font-variant-numeric: tabular-nums; text-align: right; }
+
+.effect-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.effect-chips button { min-height: 28px; padding: 0 10px; font-size: 12px; }
+.effect-chips button[data-active="true"] { border-color: var(--accent); color: var(--accent); }
 
 /* 便签管理: one list, filtered by state */
 .note-filter button { gap: 6px; }

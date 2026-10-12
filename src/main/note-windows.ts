@@ -1,7 +1,8 @@
 import { BrowserWindow, screen, shell, type BrowserWindowConstructorOptions, type Rectangle } from 'electron'
-import { IPC, type HostOpenRequest } from '@shared/ipc'
+import { IPC, type HostOpenRequest, type LeaveRequest } from '@shared/ipc'
 import type { LeaveKind, NoteLayer, NoteRecord, ResizeSession } from '@shared/types'
 import { NOTE_MAX_HEIGHT, NOTE_MAX_WIDTH, clampNoteSize } from '@shared/note-model'
+import { APPEAR_EFFECTS, EffectPicker, startupDelay, type AppearEffect, type AppearPlan, type CelebrationGeometry, type OpenReason } from '@shared/effects'
 import {
   ensurePaperReachable,
   getWindowMargin,
@@ -24,6 +25,13 @@ interface Entry {
   drag: { cursor: Electron.Point; window: Electron.Point } | null
   resizeTimer: NodeJS.Timeout | null
   revealed: boolean
+  /** Shown at full opacity: an appear animation can start. */
+  onScreen: boolean
+  /** Animation to play once the window is on screen and the page listens. */
+  appear: AppearPlan | null
+  appearListening: boolean
+  /** Handed to the effects overlay or animating out: ignores the mouse, skipped by hit tests. */
+  leaving: boolean
   /** Current setIgnoreMouseEvents state; null until first applied. */
   ignoring: boolean | null
   hitSeq: number
@@ -37,7 +45,18 @@ export interface NoteWindowManagerOptions {
    * Off by default: on Windows such windows showed an opaque white background.
    */
   sharedProcess: boolean
+  /** Rich animations are on and the system does not ask for less motion. */
+  animate: () => boolean
   log: (event: string, data?: Record<string, unknown>) => void
+}
+
+/** A finished note's window, for the effects overlay. */
+export interface NoteSnapshot {
+  png: Buffer
+  /** Image pixels per DIP. */
+  scale: number
+  frame: Rectangle
+  paper: CelebrationGeometry['paper']
 }
 
 const OPEN_TIMEOUT_MS = 5000
@@ -61,7 +80,7 @@ export class NoteWindowManager {
   private hostLoad: Promise<boolean> | null = null
   private readonly entries = new Map<string, Entry>()
   private readonly byWebContents = new Map<number, string>()
-  private readonly opening = new Map<string, { focus: boolean; timer: NodeJS.Timeout }>()
+  private readonly opening = new Map<string, { focus: boolean; reason: OpenReason; timer: NodeJS.Timeout }>()
   private readonly reopenHistory = new Map<string, number[]>()
   private readonly flushWaiters = new Map<number, () => void>()
   private quitting = false
@@ -71,6 +90,8 @@ export class NoteWindowManager {
   private hitTimer: NodeJS.Timeout | null = null
   private readonly hitProbes = new Map<string, { seq: number; resolve: (hit: boolean) => void }>()
   private readonly options: NoteWindowManagerOptions
+  private readonly appearPicker = new EffectPicker<AppearEffect>(APPEAR_EFFECTS)
+  private startupIndex = 0
 
   constructor(options: NoteWindowManagerOptions) {
     this.options = options
@@ -90,13 +111,14 @@ export class NoteWindowManager {
   }
 
   /** Open every visible note, oldest first so the most recently used ends on top. */
-  async start(): Promise<void> {
+  async start(reason: OpenReason = 'startup'): Promise<void> {
+    this.startupIndex = 0
     const visible = this.options.service.list().filter((note) => note.visible)
     const ordered = [
       ...visible.filter((note) => note.layer !== 'desktop').sort((a, b) => a.lastActiveAt - b.lastActiveAt),
       ...visible.filter((note) => note.layer === 'desktop').sort((a, b) => b.lastActiveAt - a.lastActiveAt),
     ]
-    for (const note of ordered) await this.open(note.id)
+    for (const note of ordered) await this.open(note.id, { reason })
   }
 
   noteIdFor(webContentsId: number): string | undefined {
@@ -115,7 +137,8 @@ export class NoteWindowManager {
     return focus
   }
 
-  async open(id: string, options: { focus?: boolean } = {}): Promise<void> {
+  async open(id: string, options: { focus?: boolean; reason?: OpenReason } = {}): Promise<void> {
+    const reason = options.reason ?? 'show'
     if (this.quitting) return
     const existing = this.entries.get(id)
     if (existing) {
@@ -135,14 +158,14 @@ export class NoteWindowManager {
         if (!this.opening.has(id)) return
         this.opening.delete(id)
         this.options.log('note.open-timeout', { id })
-        this.openIsolated(id, Boolean(options.focus))
+        this.openIsolated(id, Boolean(options.focus), reason)
       }, OPEN_TIMEOUT_MS)
-      this.opening.set(id, { focus: Boolean(options.focus), timer })
+      this.opening.set(id, { focus: Boolean(options.focus), reason, timer })
       const request: HostOpenRequest = { id, url: rendererUrl('note', { id }), frameName: `note-${id}` }
       this.host!.webContents.send(IPC.HOST_OPEN, request)
       return
     }
-    this.openIsolated(id, Boolean(options.focus))
+    this.openIsolated(id, Boolean(options.focus), reason)
   }
 
   async close(id: string, options: { flush?: boolean } = {}): Promise<void> {
@@ -184,9 +207,9 @@ export class NoteWindowManager {
   }
 
   /** Tell every open note something changed that is not about a note, e.g. the model settings. */
-  broadcast(channel: string): void {
+  broadcast(channel: string, ...args: unknown[]): void {
     for (const entry of this.entries.values()) {
-      if (!entry.win.isDestroyed()) entry.win.webContents.send(channel)
+      if (!entry.win.isDestroyed()) entry.win.webContents.send(channel, ...args)
     }
   }
 
@@ -206,12 +229,55 @@ export class NoteWindowManager {
     else void this.open(id, { focus: true })
   }
 
-  /** Play the leaving animation: torn off when done, crumpled when abandoned. */
+  /** Play the leaving animation in the note window: torn off when done, crumpled when abandoned. */
   playTear(id: string, kind: LeaveKind = 'tear'): boolean {
     const entry = this.entries.get(id)
     if (!entry || entry.win.isDestroyed()) return false
-    entry.win.webContents.send(IPC.NOTE_PLAY_TEAR, kind)
+    this.markLeaving(entry)
+    const request: LeaveRequest = { kind, handedOff: false }
+    entry.win.webContents.send(IPC.NOTE_PLAY_TEAR, request)
     return true
+  }
+
+  /** A picture of the note's window as it is now, for the effects overlay; null when there is none to take. */
+  async snapshot(id: string): Promise<NoteSnapshot | null> {
+    const entry = this.entries.get(id)
+    const note = this.options.service.get(id)
+    const win = entry?.win
+    if (!entry || !note || !win || win.isDestroyed() || !entry.onScreen || !win.isVisible() || win.isMinimized()) return null
+    const frame = win.getBounds()
+    const image = await win.webContents.capturePage()
+    if (image.isEmpty() || win.isDestroyed()) return null
+    const size = image.getSize()
+    return {
+      png: image.toPNG(),
+      scale: size.width / Math.max(1, frame.width),
+      frame,
+      paper: { margin: getWindowMargin(entry.rotation), width: note.bounds.width, height: note.bounds.height, rotation: entry.rotation },
+    }
+  }
+
+  /** The effects overlay shows the note now: hide its window at once; it closes after saving. */
+  handOff(id: string, kind: LeaveKind = 'tear'): void {
+    const entry = this.entries.get(id)
+    if (!entry || entry.win.isDestroyed()) return
+    this.markLeaving(entry)
+    entry.win.setOpacity(0)
+    const request: LeaveRequest = { kind, handedOff: true }
+    entry.win.webContents.send(IPC.NOTE_PLAY_TEAR, request)
+  }
+
+  /** The page listens for its appear animation. */
+  appearReady(id: string): void {
+    const entry = this.entries.get(id)
+    if (!entry) return
+    entry.appearListening = true
+    this.sendAppear(entry)
+  }
+
+  /** The appear animation planned for a note window that has not played it yet. */
+  appearPlan(id: string): AppearPlan | null {
+    return this.entries.get(id)?.appear ?? null
   }
 
   visibleCount(): number {
@@ -248,6 +314,11 @@ export class NoteWindowManager {
 
   isRevealed(id: string): boolean {
     return this.entries.get(id)?.revealed === true
+  }
+
+  /** Shown at full opacity, after the first-show settling. */
+  isOnScreen(id: string): boolean {
+    return this.entries.get(id)?.onScreen === true
   }
 
   // ---- drag, resize and click-through, driven by the note's renderer ----
@@ -363,6 +434,8 @@ export class NoteWindowManager {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
+      // The appear animation's sound plays without a click in the new window.
+      autoplayPolicy: 'no-user-gesture-required',
     }
   }
 
@@ -395,7 +468,7 @@ export class NoteWindowManager {
       }
       clearTimeout(pending.timer)
       this.opening.delete(id)
-      this.attach(id, win, pending.focus)
+      this.attach(id, win, pending.focus, pending.reason)
     })
     host.webContents.on('render-process-gone', (_event, details) => this.recoverRendererCrash('host', details.reason))
     host.on('closed', () => {
@@ -411,15 +484,40 @@ export class NoteWindowManager {
     return this.hostLoad
   }
 
-  private openIsolated(id: string, focus: boolean): void {
+  private openIsolated(id: string, focus: boolean, reason: OpenReason): void {
     const note = this.options.service.get(id)
     if (!note || !note.visible || this.entries.has(id) || this.quitting) return
     const win = new BrowserWindow(this.windowOptions(note))
-    this.attach(id, win, focus)
+    this.attach(id, win, focus, reason)
     void win.loadURL(rendererUrl('note', { id }))
   }
 
-  private attach(id: string, win: BrowserWindow, focus: boolean): void {
+  /**
+   * New notes and notes put back come in with a random animation and a sound;
+   * at startup they come in one after another, quietly; after a crash nothing plays.
+   */
+  private planAppear(reason: OpenReason): AppearPlan | null {
+    if (reason === 'recover' || !this.options.animate()) return null
+    return {
+      effect: this.appearPicker.next(),
+      sound: reason !== 'startup',
+      delay: reason === 'startup' ? startupDelay(this.startupIndex++) : 0,
+    }
+  }
+
+  private sendAppear(entry: Entry): void {
+    if (!entry.appear || !entry.appearListening || !entry.onScreen || entry.win.isDestroyed()) return
+    entry.win.webContents.send(IPC.NOTE_APPEAR, entry.appear)
+    entry.appear = null
+  }
+
+  private markLeaving(entry: Entry): void {
+    entry.leaving = true
+    entry.drag = null
+    this.applyIgnore(entry, true)
+  }
+
+  private attach(id: string, win: BrowserWindow, focus: boolean, reason: OpenReason = 'show'): void {
     const note = this.options.service.get(id)
     if (!note || this.entries.has(id)) {
       win.destroy()
@@ -436,6 +534,10 @@ export class NoteWindowManager {
       drag: null,
       resizeTimer: null,
       revealed: false,
+      onScreen: false,
+      appear: this.planAppear(reason),
+      appearListening: false,
+      leaving: false,
       ignoring: null,
       hitSeq: 0,
     }
@@ -482,6 +584,10 @@ export class NoteWindowManager {
     }
     const win = entry.win
     win.setBackgroundColor(TRANSPARENT)
+    const onScreen = () => {
+      entry.onScreen = true
+      this.sendAppear(entry)
+    }
     const finish = () => {
       if (win.isDestroyed()) return
       const layer = this.options.service.get(entry.id)?.layer ?? note.layer
@@ -506,11 +612,13 @@ export class NoteWindowManager {
         if (win.isDestroyed()) return
         win.setAlwaysOnTop(false)
         finish()
-        win.setOpacity(1)
+        if (!entry.leaving) win.setOpacity(1)
+        onScreen()
       }, DWM_SETTLE_MS)
       return
     }
     finish()
+    onScreen()
   }
 
   // ---- click-through ----
@@ -552,7 +660,7 @@ export class NoteWindowManager {
     let near = false
     for (const entry of this.entries.values()) {
       const win = entry.win
-      if (win.isDestroyed() || !entry.revealed || !win.isVisible()) continue
+      if (win.isDestroyed() || !entry.revealed || !win.isVisible() || entry.leaving) continue
       if (entry.drag || entry.resizeTimer) {
         this.applyIgnore(entry, false)
         near = true
@@ -646,7 +754,7 @@ export class NoteWindowManager {
     this.updatePinTimer()
     if (this.quitting) return
     if (entry.intentionalClose) {
-      if (entry.reopen && this.options.service.get(entry.id)?.visible) void this.open(entry.id)
+      if (entry.reopen && this.options.service.get(entry.id)?.visible) void this.open(entry.id, { reason: 'show' })
       return
     }
     // Not closed by us: Explorer took an owned window down, or the system did.
@@ -661,7 +769,7 @@ export class NoteWindowManager {
     history.push(now)
     this.reopenHistory.set(entry.id, history)
     this.options.log('note.reopen-after-unexpected-close', { id: entry.id })
-    setTimeout(() => void this.open(entry.id), 1200 * history.length)
+    setTimeout(() => void this.open(entry.id, { reason: 'recover' }), 1200 * history.length)
   }
 
   private recoverRendererCrash(source: string, reason: string): void {
@@ -678,7 +786,7 @@ export class NoteWindowManager {
       this.host = null
       this.hostLoad = null
       this.recoveringHost = false
-      void this.start()
+      void this.start('recover')
     }, 800)
   }
 
@@ -701,7 +809,7 @@ export class NoteWindowManager {
     }
     if (!entry) {
       // Created notes are opened by whoever created them, with focus if wanted.
-      if (kind === 'updated' && !this.opening.has(note.id)) void this.open(note.id)
+      if (kind === 'updated' && !this.opening.has(note.id)) void this.open(note.id, { reason: 'show' })
       return
     }
     if (entry.intentionalClose) {

@@ -1,14 +1,16 @@
-import { app, screen, shell } from 'electron'
+import { app, screen, shell, systemPreferences } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { AppSettings, CreateNoteOptions, LeaveKind, ManagerPage, ManagerSnapshot, NoteRecord } from '@shared/types'
-import { NOTE_DEFAULT_HEIGHT, NOTE_DEFAULT_WIDTH, isInProgress, noteState } from '@shared/note-model'
-import { placeNewNote } from '@shared/geometry'
+import { NOTE_COLORS, NOTE_DEFAULT_HEIGHT, NOTE_DEFAULT_WIDTH, ROTATION_SEQUENCE, effectSettingsOf, isInProgress, noteState } from '@shared/note-model'
+import { getWindowMargin, placeNewNote } from '@shared/geometry'
+import { COMPLETE_EFFECTS, EffectPicker, type CompleteEffect } from '@shared/effects'
 import { buildStatsNote, periodEnd, summarizePeriod, type StatsDataset, type StatsGranularity } from '@shared/stats'
 import { pickInsightNotes } from '@shared/insights'
 import { applyUserDataOverride } from './env'
 import { preloadPath, registerProtocolHandlers, registerSchemes } from './app-paths'
 import { NotesService } from './notes-service'
 import { NoteWindowManager } from './note-windows'
+import { EffectsOverlay } from './effects-window'
 import { registerIpc } from './ipc'
 import { getManagerWindow, isManagerWebContents, openManagerWindow } from './manager-window'
 import { AiService } from './ai/service'
@@ -20,6 +22,8 @@ const PROTOCOL = 'lavanotes'
 const AUTOSTART_ARG = '--autostart'
 /** lavanotes://new?text=… comes from other apps (LavaDesk's assistant); keep it a short note. */
 const NEW_NOTE_TEXT_LIMIT = 2000
+/** A leaving note's window or the overlay reports the end of the animation; this covers one that never answers. */
+const LEAVE_FALLBACK_MS = 4000
 
 applyUserDataOverride()
 registerSchemes()
@@ -56,12 +60,26 @@ async function main(): Promise<void> {
 
   registerProtocolHandlers(service.paths.assetsDir)
   const preload = preloadPath()
+
+  /** The system's "show animations" setting; the smoke test always animates so CI covers the effects. */
+  const reducedMotion = (): boolean => {
+    if (process.env.LAVANOTES_SMOKE === '1') return false
+    try {
+      return systemPreferences.getAnimationSettings().prefersReducedMotion
+    } catch {
+      return false
+    }
+  }
+  const animate = (): boolean => service.settings.effects && !reducedMotion()
+
   const windows = new NoteWindowManager({
     service,
     preload,
     sharedProcess: process.env.LAVANOTES_SHARED_PROCESS === '1',
+    animate,
     log,
   })
+  const effects = new EffectsOverlay({ preload, log })
 
   const createNote = async (options: CreateNoteOptions): Promise<NoteRecord | null> => {
     const near = options.nearNoteId ? service.get(options.nearNoteId) : undefined
@@ -80,7 +98,7 @@ async function main(): Promise<void> {
         color: options.color,
         layer: options.layer,
       })
-      await windows.open(note.id, { focus: options.focus !== false })
+      await windows.open(note.id, { focus: options.focus !== false, reason: 'new' })
       return note
     } catch (error) {
       log('note.create-failed', { message: (error as Error).message })
@@ -88,7 +106,8 @@ async function main(): Promise<void> {
     }
   }
 
-  // ✓ means done: play the tear animation, then archive the note.
+  // ✓ means done: a random celebration on the effects overlay (or the note's own tear
+  // animation when that cannot play), then the note is archived.
   // 废弃 means given up: the note crumples away and is kept as abandoned.
   const leaving = new Map<string, LeaveKind>()
   const settle = (id: string, kind: LeaveKind): void => {
@@ -101,16 +120,91 @@ async function main(): Promise<void> {
     leaving.delete(id)
     settle(id, kind)
   }
+  const finishedToday = (): number => {
+    const start = new Date()
+    start.setHours(0, 0, 0, 0)
+    return service.list().filter((note) => note.archivedAt !== undefined && note.archivedAt >= start.getTime()).length
+  }
+  const completePicker = new EffectPicker<CompleteEffect>(COMPLETE_EFFECTS)
+  /** Hand a finished note to the effects overlay; false when it could not take over. */
+  const celebrate = async (id: string): Promise<boolean> => {
+    const note = service.get(id)
+    if (!note || !effects.supported) return false
+    const shot = await windows.snapshot(id).catch((error) => {
+      log('effects.capture-failed', { message: (error as Error).message })
+      return null
+    })
+    if (!shot || !leaving.has(id)) return false
+    const settings = service.settings
+    const played = await effects.play({
+      effect: completePicker.next(),
+      color: note.color,
+      snapshot: shot.png,
+      scale: shot.scale,
+      frame: shot.frame,
+      paper: shot.paper,
+      sound: settings.sound,
+      volume: settings.volume,
+      todayCount: finishedToday() + 1,
+    })
+    if (!played) return false
+    windows.handOff(id)
+    finishTear(id)
+    return true
+  }
   const retireNote = (id: string, kind: LeaveKind): void => {
     const note = service.get(id)
     if (!note || note.archivedAt !== undefined || note.abandonedAt !== undefined || leaving.has(id)) return
-    if (!windows.playTear(id, kind)) {
+    if (!windows.windowFor(id)) {
       settle(id, kind)
       return
     }
     leaving.set(id, kind)
-    // The window reports the end of the animation; this covers a window that never answers.
-    setTimeout(() => finishTear(id), 2500)
+    setTimeout(() => finishTear(id), LEAVE_FALLBACK_MS)
+    const animateInWindow = () => {
+      if (leaving.has(id) && !windows.playTear(id, kind)) finishTear(id)
+    }
+    if (kind !== 'tear' || !animate()) {
+      animateInWindow()
+      return
+    }
+    void celebrate(id).then((handedOff) => {
+      if (!handedOff) animateInWindow()
+    })
+  }
+  /** The cursor is on a note's ✓: get the overlay ready over its display. */
+  const prepareComplete = (id: string): void => {
+    const note = service.get(id)
+    if (!note || !animate()) return
+    effects.prepare({ x: Math.round(note.bounds.x + note.bounds.width / 2), y: Math.round(note.bounds.y + note.bounds.height / 2) })
+  }
+  const previewPicker = new EffectPicker<CompleteEffect>(COMPLETE_EFFECTS)
+  /** Settings → 完成动画: play one over the manager window with a plain paper. */
+  const previewEffect = async (effect: CompleteEffect | null): Promise<boolean> => {
+    const manager = getManagerWindow()
+    if (!manager || manager.isDestroyed() || !effects.supported) return false
+    const bounds = manager.getContentBounds()
+    const rotation = ROTATION_SEQUENCE[Math.floor(Math.random() * ROTATION_SEQUENCE.length)]
+    const margin = getWindowMargin(rotation)
+    const paper = { margin, width: 260, height: 240, rotation }
+    const frame = {
+      x: Math.round(bounds.x + bounds.width / 2 - paper.width / 2 - margin),
+      y: Math.round(bounds.y + bounds.height / 2 - paper.height / 2 - margin),
+      width: paper.width + margin * 2,
+      height: paper.height + margin * 2,
+    }
+    const settings = service.settings
+    return effects.play({
+      effect: effect ?? previewPicker.next(),
+      color: NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)],
+      snapshot: null,
+      scale: 1,
+      frame,
+      paper,
+      sound: settings.sound,
+      volume: settings.volume,
+      todayCount: 0,
+    })
   }
   const completeNote = (id: string): void => retireNote(id, 'tear')
   const abandonNote = (id: string): void => retireNote(id, 'crumple')
@@ -143,6 +237,9 @@ async function main(): Promise<void> {
   const setSettings = (patch: Partial<AppSettings>): AppSettings => {
     const next = service.setSettings(patch)
     if (patch.launchAtLogin !== undefined) applyLaunchAtLogin(next.launchAtLogin)
+    if (patch.effects !== undefined || patch.sound !== undefined || patch.volume !== undefined) {
+      windows.broadcast(IPC.NOTE_EFFECT_SETTINGS, effectSettingsOf(next))
+    }
     refreshTrayMenu(trayActions)
     return next
   }
@@ -163,6 +260,7 @@ async function main(): Promise<void> {
     platform: process.platform,
     desktopPinSupported: windows.desktopPinSupported,
     dataDir: service.paths.root,
+    reducedMotion: reducedMotion(),
   })
 
   let managerNotifyTimer: NodeJS.Timeout | null = null
@@ -189,6 +287,8 @@ async function main(): Promise<void> {
     completeNote,
     abandonNote,
     finishTear,
+    prepareComplete,
+    previewEffect,
     setSettings,
     openManager,
     ai,
@@ -285,6 +385,7 @@ async function main(): Promise<void> {
     event.preventDefault()
     void (async () => {
       try {
+        effects.destroy()
         await windows.shutdown()
         await service.flush()
       } catch (error) {
@@ -299,7 +400,7 @@ async function main(): Promise<void> {
 
   if (process.env.LAVANOTES_SMOKE === '1') {
     const { runSmoke } = await import('./smoke')
-    await runSmoke({ service, windows, createNote, completeNote, abandonNote, statsDataset, ai, runInsight })
+    await runSmoke({ service, windows, effects, createNote, completeNote, abandonNote, statsDataset, ai, runInsight })
     return
   }
 

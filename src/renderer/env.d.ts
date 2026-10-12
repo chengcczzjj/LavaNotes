@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import type { HostBridge, ManagerBridge, NoteBridge, TrayBridge } from '@shared/ipc'
+import type { EffectsBridge, HostBridge, ManagerBridge, NoteBridge, TrayBridge } from '@shared/ipc'
 
 declare global {
   interface Window {
@@ -7,6 +7,7 @@ declare global {
     lavaManager: ManagerBridge
     lavaHost: HostBridge
     lavaTray: TrayBridge
+    lavaEffects: EffectsBridge
   }
 }
 

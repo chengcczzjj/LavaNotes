@@ -23,6 +23,7 @@ import type {
 import type { TranslateEvent, TranslateRequest, TranslateResult } from './translate.ts'
 import type { StatsDataset, StatsGranularity } from './stats.ts'
 import type { InsightRecord, InsightRunResult } from './insights.ts'
+import type { AppearPlan, CelebrationRequest, CompleteEffect, EffectSettings } from './effects.ts'
 
 export const IPC = {
   // note window
@@ -49,6 +50,10 @@ export const IPC = {
   NOTE_AI_STATUS: 'note:ai-status',
   NOTE_TRANSLATE: 'note:translate',
   NOTE_TRANSLATE_CANCEL: 'note:translate-cancel',
+  /** The page listens for NOTE_APPEAR (sent once the window is also on screen). */
+  NOTE_APPEAR_READY: 'note:appear-ready',
+  /** The cursor is on ✓: get the effects overlay ready. */
+  NOTE_PREPARE_COMPLETE: 'note:prepare-complete',
   // pushed to a note window
   NOTE_UPDATED: 'note:updated',
   NOTE_PLAY_TEAR: 'note:play-tear',
@@ -56,6 +61,8 @@ export const IPC = {
   NOTE_FLUSH_REQUEST: 'note:flush-request',
   NOTE_TRANSLATE_EVENT: 'note:translate-event',
   NOTE_AI_CHANGED: 'note:ai-changed',
+  NOTE_APPEAR: 'note:appear',
+  NOTE_EFFECT_SETTINGS: 'note:effect-settings',
   // manager window
   MANAGER_SNAPSHOT: 'manager:snapshot',
   MANAGER_CREATE: 'manager:create',
@@ -86,6 +93,7 @@ export const IPC = {
   MANAGER_AI_SIGN_IN_CANCEL: 'manager:ai-sign-in-cancel',
   MANAGER_AI_SIGN_OUT: 'manager:ai-sign-out',
   MANAGER_OPEN_URL: 'manager:open-url',
+  MANAGER_PREVIEW_EFFECT: 'manager:preview-effect',
   // pushed to the manager
   MANAGER_CHANGED: 'manager:changed',
   MANAGER_UPDATE_STATE: 'manager:update-state',
@@ -98,7 +106,18 @@ export const IPC = {
   TRAY_READY: 'tray:ready',
   TRAY_RUN: 'tray:run',
   TRAY_CLOSE: 'tray:close',
+  // effects overlay: a celebration to play, then the page says it has taken over, and when all are done
+  EFFECTS_PLAY: 'effects:play',
+  EFFECTS_READY: 'effects:ready',
+  EFFECTS_IDLE: 'effects:idle',
 } as const
+
+/** How the page plays a note leaving: its own animation, or none because the effects overlay took over. */
+export interface LeaveRequest {
+  kind: LeaveKind
+  /** The overlay is showing the note now; the page only stops and saves. */
+  handedOff: boolean
+}
 
 export interface NoteBridge {
   init(): Promise<NoteInit | null>
@@ -129,7 +148,13 @@ export interface NoteBridge {
   /** The model settings changed (a key saved, a model chosen). */
   onAiChanged(listener: () => void): () => void
   onUpdated(listener: (note: NoteRecord) => void): () => void
-  onPlayTear(listener: (kind: LeaveKind) => void): () => void
+  onPlayTear(listener: (request: LeaveRequest) => void): () => void
+  /** Ready for NOTE_APPEAR. */
+  appearReady(): void
+  onAppear(listener: (plan: AppearPlan) => void): () => void
+  onEffectSettings(listener: (settings: EffectSettings) => void): () => void
+  /** The cursor is on ✓; lets the overlay load before the click. */
+  prepareComplete(): void
   onFocusEditor(listener: () => void): () => void
   onHitTest(listener: (seq: number, x: number, y: number) => void): () => void
   onFlushRequest(listener: () => void): () => void
@@ -165,6 +190,8 @@ export interface ManagerBridge {
   chatgptCancel(): Promise<void>
   chatgptSignOut(): Promise<AiSettings>
   openUrl(url: string): Promise<void>
+  /** Play a finishing animation over the manager window (null: a random one). */
+  previewEffect(effect: CompleteEffect | null): Promise<boolean>
   onChanged(listener: () => void): () => void
   onUpdateState(listener: (state: UpdateState) => void): () => void
   onAiChanged(listener: () => void): () => void
@@ -195,6 +222,14 @@ export interface TrayMenuState {
 export type TrayCommand = 'new-note' | 'show-all' | 'open-manager' | 'toggle-launch' | 'install-update' | 'quit'
 
 export const TRAY_COMMANDS: readonly TrayCommand[] = ['new-note', 'show-all', 'open-manager', 'toggle-launch', 'install-update', 'quit']
+
+export interface EffectsBridge {
+  onPlay(listener: (request: CelebrationRequest) => void): () => void
+  /** The first frame of this celebration is drawn: the note window can go. */
+  ready(seq: number): void
+  /** Nothing left to draw. */
+  idle(): void
+}
 
 export interface TrayBridge {
   onShow(listener: (seq: number, state: TrayMenuState) => void): () => void

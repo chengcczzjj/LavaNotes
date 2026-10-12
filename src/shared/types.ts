@@ -1,3 +1,5 @@
+import type { AppearPlan, EffectSettings } from './effects.ts'
+
 export type NoteColor = 'butter' | 'rose' | 'mint' | 'sky' | 'lilac'
 /** normal: an ordinary window; top: always on top; desktop: pinned to the desktop layer. */
 export type NoteLayer = 'normal' | 'top' | 'desktop'
@@ -75,6 +77,12 @@ export interface AppSettings {
   launchAtLogin: boolean
   /** Layer used for newly created notes. */
   defaultLayer: NoteLayer
+  /** Rich animations when a note is finished, appears, or a checklist item is checked. */
+  effects: boolean
+  /** Sound effects with them. */
+  sound: boolean
+  /** 0..1 */
+  volume: number
 }
 
 export interface NoteInit {
@@ -85,6 +93,9 @@ export interface NoteInit {
   platform: string
   /** True when the note was just created and should take keyboard focus. */
   focusEditor: boolean
+  /** Animate in once the window is on screen (the page then waits for NOTE_APPEAR). */
+  appear: AppearPlan | null
+  effects: EffectSettings
 }
 
 export interface ResizeSession {
@@ -108,6 +119,8 @@ export interface ManagerSnapshot {
   platform: string
   desktopPinSupported: boolean
   dataDir: string
+  /** The system asks for less motion: notes leave with the short tear and appear without animation. */
+  reducedMotion: boolean
 }
 
 /** Pages of the manager window. */
